@@ -4,5 +4,8 @@
 			"path": "."
 		}
 	],
-	"settings": {"editor.inlineSuggest.enabled" : false}
+	"settings": {
+		"editor.inlineSuggest.enabled": false,
+		"explorer.sortOrder": "filesFirst"
+	}
 }
