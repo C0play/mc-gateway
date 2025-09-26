@@ -37,30 +37,32 @@ try:
             received = Packet('r', client)
             print(received.data)
 
-            # If the first packet was a handshake, then the client will immedietly send a status request
+            # If the first packet was a status handshake, then the client will immedietly send a status request
             if isinstance(received.data[1], Null.inbound) and received.data[5] == intent.Status:
-                received = Packet('r', client)
-                print(received.data)
+                status_req = Packet('r', client)
+                print(status_req.data)
+                
+                if isinstance(status_req.data[1], Status.inbound):
+                    status_res = Packet('w', client, Packet.write_status_response())
+                    # Then the client sends a ping request
+                    ping_req = Packet('r', client)
+                    print(ping_req.data)
 
+                    if isinstance(ping_req.data[1], Status.inbound):
+                        ping_res = Packet('w', client, ping_req.write_pong_response())
+                        # Exchange done, reseting state
+                        Packet.updateState(intent.Null)
+
+            # If the first packet was a login handshake, then the client will immedietly send a start_login
             if isinstance(received.data[1], Null.inbound) and received.data[5] == intent.Login:
-                received = Packet('r', client)
-                print(received.data)
+                login_start = Packet('r', client)
+                print(login_start.data)
 
-            if Packet.state == intent.Status:
-                if isinstance(received.data[1], Status.inbound):
-                    match received.data[1]:
-                        case Status.inbound.status_request:
-                            response = Packet('w', client, Packet.write_status_response())
-                        case Status.inbound.ping_request:
-                            response = Packet('w', client, received.write_pong_response())
-            
-            elif Packet.state == intent.Login:
-                if isinstance(received.data[1], Login.inbound):
-                    response = Packet('w', 
-                                      client, 
-                                      Packet.writeDisconnect(
-                                          '{text: "Server is starting, please wait.", color: "green"}'))
-                    Packet.updateState(intent.Status)
+                if isinstance(login_start.data[1], Login.inbound):
+                    response = Packet('w', client, Packet.write_disconnect())
+                    # Exchange done, reseting state
+                    Packet.updateState(intent.Null)
+
         except Exception as e:
             print(e)
 

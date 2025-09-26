@@ -70,19 +70,7 @@ class Packet:
 
                 case intent.Status:
                     if packet_proto == Status.inbound.status_request:
-                        if packet_length == 1:
-                            self.data = [packet_length, Status.inbound.status_request]
-                        else: # It's a handshake with login intent
-                            proto_version = mct.read_VarInt(client)
-                            addr = mct.read_String(client)
-                            port =  mct.read_u_short(client)
-                            new_intent =  mct.read_VarInt(client)
-
-                            Packet.updateState(new_intent)
-                            if Packet.state != new_intent:
-                                raise RuntimeError("Packet state has not been updated correctly")
-                                        
-                            self.data = [packet_length, Null.inbound.handshake, proto_version, addr, port, new_intent]
+                        self.data = [packet_length, Status.inbound.status_request]
 
                     if packet_proto == Status.inbound.ping_request:
                         payload = mct.read_long(client)
@@ -93,13 +81,13 @@ class Packet:
                         name = mct.read_String(client)
                         uuid = mct.read_uuid(client)
                         self.data = [packet_length, Login.inbound.login_start, name, uuid]
+
                 case intent.Transfer:
                     pass
-                case _:
-                    # Debug
-                    print("DEBUG: base case triggered")
-                    # -----
+
+                case default:
                     self.data = [packet_length, hex(packet_proto)]
+                    raise ValueError(f"Unexpected state in Packet class: {default}")
         
         elif mode == 'w':
             if data != None:
@@ -131,14 +119,14 @@ class Packet:
     
     def write_pong_response(self):
         packet_id = mct.write_VarInt(Status.outbound.pong_response)
-        packet_data = self.data[2]
+        packet_data = mct.write_long(self.data[2])
 
         packet_body = packet_id + packet_data
         packet_len = mct.write_VarInt(len(packet_body))
         return packet_len + packet_body
     
     @classmethod
-    def writeDisconnect(cls, msg : str):
+    def write_disconnect(cls, msg : str = '{text: "Server is starting, please wait.", color: "green"}'):
 
         packet_id = mct.write_VarInt(Login.outbound.disconnect_login)
         packet_data = mct.write_String(msg)

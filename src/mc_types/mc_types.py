@@ -1,3 +1,4 @@
+import numpy as np
 import socket
 from uuid import UUID
 
@@ -14,13 +15,16 @@ def read_u_short(sock : socket.socket) -> int:
     buffer = sock.recv(2)
     return (buffer[0] << 8) | buffer[1]
 
-def read_long(sock : socket.socket) -> int:
-    buffer = sock.recv(8)
-    res = 0
-    for i in range(8):
-        res += (buffer[i]) << (i * 8)
-    
-    return res
+def read_long(sock : socket.socket) -> np.int64:
+    res = np.int64(0)
+    try:
+        buffer = sock.recv(8)
+        for i in range(8):
+            res += (buffer[i]) << ((8 - i) * 8)
+        return res
+
+    except Exception as e:
+        raise RuntimeError(f"Exception in read_long: {e}")
 
 def read_VarInt(sock : socket.socket) -> int:
     res = 0
@@ -72,3 +76,9 @@ def write_VarInt(value : int) -> bytearray:
             break
 
     return bytes
+
+def write_long(value : np.int64) -> bytearray:
+    try:
+        return bytearray(value.tobytes())
+    except Exception as e:
+        raise RuntimeError(f"Exception in write_long: {e}")
