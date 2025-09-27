@@ -40,58 +40,63 @@ class Packet:
     def updateState(cls, newState : int):
         cls.state = newState
 
-    @overload
-    def __init__(self, mode : Literal['r'], client : socket.socket) -> None: ...
-
-    @overload
-    def __init__(self, mode : Literal['w'], client : socket.socket, data : bytes) -> None: ...
-
-    def __init__(self, mode : Literal['r', 'w'], client : socket.socket, data : bytes | None = None):
+    def __init__(self):
         self.data = []
-        if mode == 'r':
-            packet_length = mct.read_VarInt(client)
-            packet_proto = mct.read_VarInt(client)
 
-            match Packet.state:
-                case intent.Null:
-                    if packet_proto != Null.inbound.handshake:
-                        raise RuntimeError(f"At null packet state, a packet with an undefined protocol has been received: {hex(packet_proto)}")
-                        
-                    proto_version = mct.read_VarInt(client)
-                    addr = mct.read_String(client)
-                    port =  mct.read_u_short(client)
-                    new_intent =  mct.read_VarInt(client)
+    def read(self, client : socket.socket) -> None:
+        packet_length = mct.read_VarInt(client)
+        packet_proto = mct.read_VarInt(client)
 
-                    Packet.updateState(new_intent)
-                    if Packet.state != new_intent:
-                        raise RuntimeError("Packet state has not been updated correctly")
-                                
-                    self.data = [packet_length, Null.inbound.handshake, proto_version, addr, port, new_intent]
+        match Packet.state:
+            case intent.Null:
+                if packet_proto != Null.inbound.handshake:
+                    raise RuntimeError(f"At null packet state, a packet with an undefined protocol has been received: {hex(packet_proto)}")
+                    
+                proto_version = mct.read_VarInt(client)
+                addr = mct.read_String(client)
+                port =  mct.read_u_short(client)
+                new_intent =  mct.read_VarInt(client)
 
-                case intent.Status:
-                    if packet_proto == Status.inbound.status_request:
-                        self.data = [packet_length, Status.inbound.status_request]
+                Packet.updateState(new_intent)
+                if Packet.state != new_intent:
+                    raise RuntimeError("Packet state has not been updated correctly")
+                            
+                self.data = [packet_length, Null.inbound.handshake, proto_version, addr, port, new_intent]
 
-                    if packet_proto == Status.inbound.ping_request:
-                        payload = mct.read_long(client)
-                        self.data = [packet_length, Status.inbound.ping_request, payload]
-
-                case intent.Login:
-                    if packet_proto == Login.inbound.login_start:
-                        name = mct.read_String(client)
-                        uuid = mct.read_uuid(client)
-                        self.data = [packet_length, Login.inbound.login_start, name, uuid]
-
-                case intent.Transfer:
-                    pass
-
-                case default:
+            case intent.Status:
+                if packet_proto == Status.inbound.status_request:
+                    self.data = [packet_length, Status.inbound.status_request]
+                elif packet_proto == Status.inbound.ping_request:
+                    payload = mct.read_long(client)
+                    self.data = [packet_length, Status.inbound.ping_request, payload]
+                else: 
                     self.data = [packet_length, hex(packet_proto)]
-                    raise ValueError(f"Unexpected state in Packet class: {default}")
+                    raise RuntimeError(f"At status packet state, a packet with an undefined protocol has been received: {hex(packet_proto)}") 
+            case intent.Login:
+                if packet_proto == Login.inbound.login_start:
+                    name = mct.read_String(client)
+                    uuid = mct.read_uuid(client)
+                    self.data = [packet_length, Login.inbound.login_start, name, uuid]
+                else: 
+                    self.data = [packet_length, hex(packet_proto)]
+                    raise RuntimeError(f"At login packet state, a packet with an undefined protocol has been received: {hex(packet_proto)}") 
+
+            case intent.Transfer:
+                self.data = [packet_length, hex(packet_proto)]
+                raise RuntimeError(f"Transfer packet state has been reached (unimplemented): {hex(packet_proto)}") 
+
+            case default:
+                self.data = [packet_length, hex(packet_proto)]
+                raise ValueError(f"Unexpected state in Packet class: {default}")
         
-        elif mode == 'w':
-            if data != None:
-                client.sendall(data)
+    def write(self, client : socket.socket, data : bytes) -> None: 
+        if data != None:
+            client.sendall(data)
+
+    def forward(self, client : socket.socket, backend : socket.socket) -> None:
+        packet_length = mct.read_VarInt(client)
+        data = client.recv(packet_length)
+
 
     @classmethod
     def write_status_response(cls):
@@ -102,10 +107,10 @@ class Packet:
                 },
                 "players": {
                     "max": 20,
-                    "online": 1
+                    "online": 0
                 },
                 "description": {
-                    "text": "Hello, world!"
+                    "text": "Server offline, press Join to start it!"
                 },
                 "enforcesSecureChat": false
             }"""
