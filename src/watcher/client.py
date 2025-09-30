@@ -6,7 +6,6 @@ class state(IntEnum):
     Status = 1
     Login = 2
     Transfer = 3
-    Forwarding = 4
 
 class Client:
     mappings = {}

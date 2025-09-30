@@ -80,3 +80,6 @@ def write_long(value: int) -> bytearray:
     
 def write_uuid(uuid: UUID) -> bytearray:
     return bytearray(uuid.bytes)
+
+def write_u_short(value : int) -> bytearray:
+    return bytearray(value.to_bytes(2, byteorder='big', signed=False))
