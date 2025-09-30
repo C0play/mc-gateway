@@ -7,32 +7,43 @@ class Backend():
     config = dotenv_values(".env")
 
     ip = config["BACKEND_IP"]
-    port = int(config["BACKEND_PORT"] or 25565)
-
     _mac = config["BACKEND_MAC"]
     _admin = config["ADMIN"]
-    
-    _status: bool = False
+    _status = False
 
-    def __init__(self, con : socket.socket) -> None:
-        self.connection = con
+    def __init__(self, port: int, container_directory: str, container_name: str) -> None:
+        
+        self.ctnr_port = port
+        # minecraft-mc-1
+        self.ctnr_name = container_name
+        # Minecraft
+        self.ctnr_dir = container_directory
+        self._ctnr_status = False
+        self._is_connected = False
+        
+        self.connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    @classmethod
-    def refresh_status(cls) -> None:
-        if cls._backend_online():
-            cls._status = cls._container_online()
-        else:
-            cls._status = False
-    
-    @classmethod
-    def get_status(cls) -> bool:
-        if cls._backend_online():
-            cls._status = cls._container_online()
-        else:
-            cls._status = False
+    def open_connection(self):
+        if self._is_connected:
+            return
         
-        return cls._status
+        if not Backend._backend_online():
+            Backend._backend_start()
+            if not Backend._backend_online():
+                raise RuntimeError(f"failed to start host: {Backend.ip}")
         
+        if not self._container_online():
+            self.container_start()
+            if not self._container_online():
+                raise RuntimeError(f"failed to start container: {self.ctnr_name}")
+        try:
+            self.connection.connect((Backend.ip, self.ctnr_port))
+            self._is_connected = True
+        except Exception as e:
+            self.connection.close()
+            raise RuntimeError(f"connect failed: {e}")
+        
+
     @classmethod
     def _backend_online(cls) -> bool:
         try:
@@ -43,63 +54,54 @@ class Backend():
             return False
     
     @classmethod
-    def _container_online(cls) -> bool:
-        if not cls._backend_online():
+    def _backend_start(cls) -> bool:
+        print("DEBUG: starting backend: ")
+        if not Backend._backend_online():
+            cmd = ["wakeonlan", Backend._mac]
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=0.1)
+        try:
+            for _ in range(5):
+                if Backend._backend_online():
+                    print(f"LOG: backend online")
+                    return True
+                else:
+                    time.sleep(10)
+            return False
+        except Exception:
+            return False
+
+    def get_ctnr_status(self) -> bool:
+        self._refresh_ctnr_status()
+        return self._ctnr_status
+    
+    def _refresh_ctnr_status(self) -> None:
+        if Backend._backend_online():
+            self._ctnr_status = self._container_online()
+        else:
+            self._ctnr_status = False
+        
+    def _container_online(self) -> bool:
+        if not Backend._backend_online():
             return False
         
-        cmd = ["ssh", f"{cls._admin}@{cls.ip}", "docker", "inspect", "-f", "{{.State.Running}}", "minecraft-mc-1"]
+        cmd = ["ssh", f"{Backend._admin}@{Backend.ip}", "docker", "inspect", "-f", "{{.State.Running}}", f"{self.ctnr_name}"]
         res = subprocess.run(cmd, capture_output=True, text=True)
         if res.returncode == 0 and res.stdout.strip().lower() == "true":
             return True
         else:
             return False
         
-    @classmethod
-    def start(cls) -> bool:
-        print("DEBUG: starting backend: ")
-        cmd = ["wakeonlan", cls._mac]
-        try:
-            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=0.1)
-            
-            for _ in range(5):
-                if cls._backend_online():
-                    print(f"LOG: backend online")
-                    return cls._container_start()
-                else:
-                    time.sleep(10)
-            cls.refresh_status()
+    def container_start(self) -> bool:
+        if not Backend._backend_start():
             return False
-        except subprocess.TimeoutExpired:
-            return False
-        except subprocess.CalledProcessError:
-            return False
-    
-    @classmethod
-    def _container_start(cls) -> bool:
-        if not cls._backend_online():
-            return False
-        cmd = ["ssh", f"{cls._admin}@{cls.ip}", "docker", "compose", "-f", "Minecraft/compose.yml", "up", "-d"]
+        
+        cmd = ["ssh", f"{Backend._admin}@{Backend.ip}", "docker", "compose", "-f", f"{self.ctnr_dir}/compose.yml", "up", "-d"]
         subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=4)
         for _ in range(5):
-            if cls._container_online:
-                cls.refresh_status()
+            if self._container_online():
+                self.ctnr_status = True
                 return True
             else:
                 time.sleep(5)
-        cls.refresh_status()
+        self.ctnr_status = False
         return False
-    
-    @classmethod
-    def shutdown(cls) -> bool:
-        try:
-            cmd = ["ssh", "blazej@server-pc", "sudo", "shutdown", "-h", "now"]
-            res = subprocess.run(cmd, check=True, timeout=5)
-            if res.returncode == 0:
-                cls.refresh_status()
-                return True
-            else:
-                cls.refresh_status()
-                return False
-        except:
-            cls.refresh_status()
-            return False

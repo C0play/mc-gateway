@@ -24,6 +24,7 @@ htmlcov/
 
 # Environment variables
 .env
+*.csv
 
 # OS files
 .DS_Store

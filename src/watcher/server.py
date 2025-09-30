@@ -1,8 +1,9 @@
-import re
+import csv
 import sys
-import time
 import socket
 import select
+import threading
+from uuid import UUID
 from dotenv import dotenv_values
 
 from ..packet.packet import Packet
@@ -11,22 +12,32 @@ from ..packet.packet import Status
 from ..packet.packet import Login
 
 from .client import Client
-from .client import state as state
+from .client import state
 
 from .backend import Backend
 
 class Server:
 
-    _allowed_ips = []
-
+    _allowed_players: set[tuple[str, UUID]] = set()
+    with open("allow_list.csv") as allow_list:
+        reader = csv.reader(allow_list)
+        for row in reader:
+            name = row[0]
+            uuid = UUID(row[1])
+            _allowed_players.add((name, uuid))
+    
     try:
         _config = dotenv_values(".env")
             
         _server_ip = _config["SERVER_IP"]
         _server_port = int(_config["SERVER_PORT"] or 25567)
+        _server_domain = _config["DOMAIN"]
         _server_max_clients = int(_config["CLIENTS"] or "4" )
 
         _ctrl_port = int(_config["CTRL_PORT"] or 25566)
+
+        # single backend for now
+        _backend = Backend(25565, "Minecraft", "minecraft-mc-1")
 
     except Exception as e:
         raise RuntimeError(f"exception during server config: {e}")
@@ -35,7 +46,7 @@ class Server:
     def __init__(self) -> None:
         try:
             self._clients : set[Client] = set()
-            Backend.refresh_status()
+            self._clients_lock = threading.Lock()
             try:
                 # minecraft socket
                 self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -79,23 +90,20 @@ class Server:
                             raise RuntimeError(f"closing ctrl client:  {e}")
                 elif self._server_socket in readyl and not shutdown:
                     client_sock, addr = self._server_socket.accept()
-
-                    if addr[0] not in Server._allowed_ips:
-                        continue
-
                     client = Client(client_sock, addr)
-                    self._clients.add(client)
-                    try:
-                        print(f"LOG: {client}")
-                        print(f"LOG: client set size: {len(self._clients)}")
-                        
-                        self._handle_client(client)
 
-                        print(f"LOG: client set size: {len(self._clients)}")
+                    with self._clients_lock:
+                        self._clients.add(client)
+                    
+                    try:
+                        print(f"LOG: new: {client}")
+                        print(f"LOG: total clients: {len(self._clients)}")
+
+                        t = threading.Thread(target=self._handle_client, daemon=True, args=(client,))
+                        t.start()
 
                     except Exception as e:
                         raise RuntimeError(f"client handling: {e}")
-                    
         except Exception as e:
             raise RuntimeError(f"server.start(): {e}")
         finally:
@@ -111,98 +119,100 @@ class Server:
 
 
     def _handle_client(self, client: Client) -> None:
-            try:
-                if Backend.get_status():
-                    print("LOG: backend online, forwarding")
+        try:
+            handshake = Packet(client)
+            handshake.read()
+            print(handshake.data)
 
-                    self._forward(client)
-                    return
-                
-            except Exception as e:
-                raise RuntimeError(f"forwarding: {e}")
+            if handshake.data[3] != Server._server_domain:
+                return
 
-            try:
-                handshake = Packet(client)
-                handshake.read()
-                print(handshake.data)
+            if len(handshake.data) < 2:
+                raise ValueError("wrong format")
 
-                if len(handshake.data) < 2:
-                    raise ValueError("wrong format")
-
-                if handshake.data[1] != Null.inbound.handshake:
-                    raise ValueError("must be a handshake")
-                
-            except Exception as e:
-                raise RuntimeError(f"first packet: {e}")
+            if not handshake.data[1] is Null.serverbound.handshake:
+                raise ValueError("must be a handshake")
             
-            try:
-                # If the first packet was a status handshake, then the client will immedietly send a status request
-                if handshake.data[1] is Null.inbound.handshake and handshake.data[5] == state.Status:
-                    status_req = Packet(client)
-                    status_req.read()
-                    print(status_req.data)
-                        
-                    if status_req.data[1] is Status.inbound.status_request:
-                        status_req.send(Status.outbound.status_response)
-                        # Then the client sends a ping request
-                        ping_req = Packet(client)
-                        ping_req.read()
-                        print(ping_req.data)
-
-                        if ping_req.data[1] is Status.inbound.ping_request:
-                            ping_req.send(Status.outbound.pong_response)
-
-                            # Exchange done, removing client
-                            try:
-                                self._clients.remove(client)
-                            except KeyError:
-                                print(f"ERROR: no client key found")
-                            try:
-                                client.connection.close()
-                            except Exception as e:
-                                raise RuntimeError(f"closing client after pong_response: {e}")
-
-            except Exception as e:
-                raise RuntimeError(f"status handshake: {e}")
-            
-            try:
-                # If the first packet was a login handshake, then the client will immedietly send a start_login
-                if handshake.data[1] is Null.inbound.handshake and handshake.data[5] == state.Login:
-                    login_start = Packet(client)
-                    login_start.read()
-                    print(login_start.data)
-
-                    if login_start.data[1] is Login.inbound.login_start:
-                        client.updateState(state.Forwarding)
-
-                        login_start.send(Login.outbound.disconnect_login)
-
-                        if  Backend.start():
-                            print("LOG: backend start success")
-                            Backend.refresh_status()
-
-                        try:
-                            self._clients.remove(client)
-                        except KeyError:
-                            print(f"ERROR: no client key found")
-                        try:
-                            client.connection.close()
-                        except Exception as e:
-                            raise RuntimeError(f"closing client after login_start: {e}")
-
-            except Exception as e:
-                raise RuntimeError(f"login handshake: {e}")
-
-    def _forward(self, client: Client) -> None:
-        client.updateState(state.Forwarding)
-        backend = Backend(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+        except Exception as e:
+            raise RuntimeError(f"first packet: {e}")
         
         try:
-            backend.connection.connect((Backend.ip, Backend.port))
+            # If the first packet was a status handshake, then the client will immedietly send a status request
+            if handshake.data[1] is Null.serverbound.handshake and handshake.data[5] == state.Status:
+                status_req = Packet(client)
+                status_req.read()
+                print(status_req.data)
+                    
+                if status_req.data[1] is Status.serverbound.status_request:
+                    status_req.respond()
+                    # Then the client sends a ping request
+                    ping_req = Packet(client)
+                    ping_req.read()
+                    print(ping_req.data)
+
+                    if ping_req.data[1] is Status.serverbound.ping_request:
+                        ping_req.respond()
+
+                return
         except Exception as e:
-            backend.connection.close()
-            raise RuntimeError(f"backend connection failed: {e}")
+            raise RuntimeError(f"status handshake: {e}")
         
+        try:
+            # If the first packet was a login handshake, then the client will immedietly send a start_login
+            if handshake.data[1] is Null.serverbound.handshake and handshake.data[5] == state.Login:
+                login_start = Packet(client)
+                login_start.read()
+                print(login_start.data)
+
+                if not (login_start.data[2], login_start.data[3]) in Server._allowed_players:
+                    print(f"LOG: unknown player: {(login_start.data[2], login_start.data[3])}")
+                    return
+
+                if login_start.data[1] is Login.serverbound.login_start:
+                    if Server._backend.get_ctnr_status():
+                        try:
+                            Server._backend.open_connection()
+                        except Exception as e:
+                            raise RuntimeError(f"exception while connecting to backend {e}")
+                        try:
+                            print("LOG: backend online, forwarding")
+                            handshake.forward(Server._backend)
+                            login_start.forward(Server._backend)
+
+                            self._forward(client, Server._backend)
+                            
+                            return
+                        
+                        except Exception as e:
+                            raise RuntimeError(f"forwarding: {e}")
+                    
+                    else:
+                        login_start.respond()
+
+                        if  Server._backend.container_start():
+                            print("LOG: backend start successfull")
+                        else:
+                            print("LOG: backend start failed")
+
+        except Exception as e:
+            raise RuntimeError(f"login handshake: {e}")
+        finally:
+            try:
+                client.connection.close()
+            except Exception as e:
+                raise RuntimeError(f"closing client {e}")
+            try: 
+                Server._backend.connection.close()
+            except Exception as e:
+                raise RuntimeError(f"closing backend connection: {e}")
+            try:
+                self._clients.remove(client)
+            except KeyError:
+                print(f"ERROR: no client key found")
+            except Exception as e:
+                raise e
+
+    def _forward(self, client: Client, backend: Backend) -> None:
         try:
             client.connection.setblocking(True)
             backend.connection.setblocking(True)
@@ -216,8 +226,8 @@ class Server:
                         except BlockingIOError:
                             data = None
                         if not data:
-                            # klient zamknął
-                            break
+                            # client closed
+                            return
                         backend.connection.sendall(data)
                     else:
                         data = None
@@ -226,25 +236,11 @@ class Server:
                         except BlockingIOError:
                             data = None
                         if not data:
-                            # klient zamknął
-                            break
+                            # backend closed
+                            return
                         client.connection.sendall(data)
         except Exception as e:
             raise RuntimeError(f"forwarding loop: {e}")
-        finally:
-            try: 
-                backend.connection.close()
-            except Exception as e:
-                raise RuntimeError(f"closing backend connection: {e}")
-            try: 
-                client.connection.close()
-            except Exception as e:
-                raise RuntimeError(f"closing client connection: {e}")
-            try:
-                self._clients.remove(client)
-            except Exception as e:
-                raise RuntimeError(f"removing client: {e}")
-
 
 if __name__ == '__main__':
     try:
@@ -252,13 +248,17 @@ if __name__ == '__main__':
             config = dotenv_values(".env")
             ctrl_port = int(config["CTRL_PORT"] or "25566") 
             
-            with socket.create_connection(("127.0.0.1", ctrl_port), timeout=2) as s:
+            with socket.create_connection(("127.0.0.1", ctrl_port), timeout=0.1) as s:
                 s.sendall(b"STOP")
             
             print("Stop signal sent.")
             sys.exit(0)
+    except TimeoutError:
+        print(f"ERROR: server is not running")
+        sys.exit(0)
     except Exception as e:
         print(f"ERROR: server shutdown command: {e}")
+        sys.exit(0)
 
     try:
         srv = Server()
