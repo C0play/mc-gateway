@@ -82,10 +82,6 @@ class Server:
                 elif self._server_socket in readyl and not self._shutdown:
                     client_sock, addr = self._server_socket.accept()
                     client = Client(client_sock, addr)
-
-                    with self._clients_lock:
-                        self._clients.add(client)
-                    
                     try:
                         print(f"LOG: new: {client}")
                         print(f"LOG: total clients: {len(self._clients)}")
@@ -112,82 +108,86 @@ class Server:
 
     def _handle_client(self, client: Client) -> None:
         try:
-            handshake = Packet(client)
-            handshake.read()
-            print(handshake.data)
+            try:
+                with self._clients_lock:
+                    self._clients.add(client)
+                        
+                handshake = Packet(client)
+                handshake.read()
+                print(handshake.data)
 
-            if handshake.data[3] != Server._server_domain:
-                return
-
-            if len(handshake.data) < 2:
-                raise ValueError("wrong format")
-
-            if not handshake.data[1] is Null.serverbound.handshake:
-                raise ValueError("must be a handshake")
-            
-        except Exception as e:
-            raise RuntimeError(f"first packet: {e}")
-        
-        try:
-            # If the first packet was a status handshake, then the client will immedietly send a status request
-            if handshake.data[1] is Null.serverbound.handshake and handshake.data[5] == state.Status:
-                status_req = Packet(client)
-                status_req.read()
-                print(status_req.data)
-                    
-                if status_req.data[1] is Status.serverbound.status_request:
-                    status_req.respond()
-                    # Then the client sends a ping request
-                    ping_req = Packet(client)
-                    ping_req.read()
-                    print(ping_req.data)
-
-                    if ping_req.data[1] is Status.serverbound.ping_request:
-                        ping_req.respond()
-
-                return
-        except Exception as e:
-            raise RuntimeError(f"status handshake: {e}")
-        
-        try:
-            # If the first packet was a login handshake, then the client will immedietly send a start_login
-            if handshake.data[1] is Null.serverbound.handshake and handshake.data[5] == state.Login:
-                login_start = Packet(client)
-                login_start.read()
-                print(login_start.data)
-
-                if not (login_start.data[2], login_start.data[3]) in Server._allowed_players:
-                    print(f"LOG: unknown player: {(login_start.data[2], login_start.data[3])}")
+                if handshake.data[3] != Server._server_domain:
                     return
 
-                if login_start.data[1] is Login.serverbound.login_start:
-                    if Server._backend.get_ctnr_status():
-                        try:
-                            Server._backend.open_connection()
-                        except Exception as e:
-                            raise RuntimeError(f"exception while connecting to backend {e}")
-                        try:
-                            print("LOG: backend online, forwarding")
-                            handshake.forward(Server._backend)
-                            login_start.forward(Server._backend)
+                if len(handshake.data) < 2:
+                    raise ValueError("wrong format")
 
-                            self._forward(client, Server._backend)
-                            
-                            return
+                if not handshake.data[1] is Null.serverbound.handshake:
+                    raise ValueError("must be a handshake")
+                
+            except Exception as e:
+                raise RuntimeError(f"first packet: {e}")
+            
+            try:
+                # If the first packet was a status handshake, then the client will immedietly send a status request
+                if handshake.data[1] is Null.serverbound.handshake and handshake.data[5] == state.Status:
+                    status_req = Packet(client)
+                    status_req.read()
+                    print(status_req.data)
                         
-                        except Exception as e:
-                            raise RuntimeError(f"forwarding: {e}")
-                    
-                    else:
-                        login_start.respond()
+                    if status_req.data[1] is Status.serverbound.status_request:
+                        status_req.respond()
+                        # Then the client sends a ping request
+                        ping_req = Packet(client)
+                        ping_req.read()
+                        print(ping_req.data)
 
-                        if  Server._backend.container_start():
-                            print("LOG: backend start successfull")
+                        if ping_req.data[1] is Status.serverbound.ping_request:
+                            ping_req.respond()
+
+                    return
+            except Exception as e:
+                raise RuntimeError(f"status handshake: {e}")
+            
+            try:
+                # If the first packet was a login handshake, then the client will immedietly send a start_login
+                if handshake.data[1] is Null.serverbound.handshake and handshake.data[5] == state.Login:
+                    login_start = Packet(client)
+                    login_start.read()
+                    print(login_start.data)
+
+                    if not (login_start.data[2], login_start.data[3]) in Server._allowed_players:
+                        print(f"LOG: unknown player: {(login_start.data[2], login_start.data[3])}")
+                        return
+
+                    if login_start.data[1] is Login.serverbound.login_start:
+                        if Server._backend.get_ctnr_status():
+                            try:
+                                Server._backend.open_connection()
+                            except Exception as e:
+                                raise RuntimeError(f"exception while connecting to backend {e}")
+                            try:
+                                print("LOG: backend online, forwarding")
+                                handshake.forward(Server._backend)
+                                login_start.forward(Server._backend)
+
+                                self._forward(client, Server._backend)
+                                
+                                return
+                            
+                            except Exception as e:
+                                raise RuntimeError(f"forwarding: {e}")
+                        
                         else:
-                            print("LOG: backend start failed")
+                            login_start.respond()
 
-        except Exception as e:
-            raise RuntimeError(f"login handshake: {e}")
+                            if  Server._backend.container_start():
+                                print("LOG: backend start successfull")
+                            else:
+                                print("LOG: backend start failed")
+
+            except Exception as e:
+                raise RuntimeError(f"login handshake: {e}")
         finally:
             try:
                 client.connection.close()
@@ -198,12 +198,10 @@ class Server:
             except Exception as e:
                 raise RuntimeError(f"closing backend connection: {e}")
             try:
-                self._clients.remove(client)
+                with self._clients_lock:
+                    self._clients.remove(client)
             except KeyError:
                 print(f"ERROR: no client key found")
-            except Exception as e:
-                raise e
-            print(f"DEBUG: client handled: {client}")
 
     def _forward(self, client: Client, backend: Backend) -> None:
         try:
