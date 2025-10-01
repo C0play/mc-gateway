@@ -47,6 +47,7 @@ class Server:
         try:
             self._clients : set[Client] = set()
             self._clients_lock = threading.Lock()
+            self._shutdown = False
             try:
                 # minecraft socket
                 self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -67,28 +68,18 @@ class Server:
         
     def start(self) -> None:
         try:
-            shutdown = False
-
-            while not shutdown:
+            while not self._shutdown:
                 sockets = [self._server_socket, self._ctrl_socket]
                 readyl, _, _ = select.select(sockets, [], [])
 
                 if self._ctrl_socket in readyl:
                     control_sock, _ = self._ctrl_socket.accept()
                     try:
-                        data = control_sock.recv(4)
-                        if data == b'STOP':
-                            shutdown = True
-                        else:
-                            raise ValueError("unexpected message received on the control socket")
+                        self._cli_parse(control_sock)
                     except Exception as e:
-                        raise RuntimeError(f"shutdown: {e}")
-                    finally:
-                        try:
-                            control_sock.close()
-                        except Exception as e:
-                            raise RuntimeError(f"closing ctrl client:  {e}")
-                elif self._server_socket in readyl and not shutdown:
+                        print(f"ERROR: control socket: {e}")
+                    
+                elif self._server_socket in readyl and not self._shutdown:
                     client_sock, addr = self._server_socket.accept()
                     client = Client(client_sock, addr)
 
@@ -103,18 +94,19 @@ class Server:
                         t.start()
 
                     except Exception as e:
-                        raise RuntimeError(f"client handling: {e}")
+                        print(f"ERROR: client handling: {e}")
+
         except Exception as e:
-            raise RuntimeError(f"server.start(): {e}")
+            raise RuntimeError(f"server.start: {e}")
         finally:
             try:
                 self._ctrl_socket.close()
             except Exception as e:
-                 raise RuntimeError(f"server.start() closing ctrl_socket:  {e}")
+                 raise RuntimeError(f"server.start closing ctrl_socket:  {e}")
             try:
                 self._server_socket.close()
             except Exception as e:
-                raise RuntimeError(f"server.start() closing mc_socket:  {e}")
+                raise RuntimeError(f"server.start closing mc_socket:  {e}")
             print("Server stopped")
 
 
@@ -211,6 +203,7 @@ class Server:
                 print(f"ERROR: no client key found")
             except Exception as e:
                 raise e
+            print(f"DEBUG: client handled: {client}")
 
     def _forward(self, client: Client, backend: Backend) -> None:
         try:
@@ -241,27 +234,63 @@ class Server:
                         client.connection.sendall(data)
         except Exception as e:
             raise RuntimeError(f"forwarding loop: {e}")
+        
+    def _cli_parse(self, sock: socket.socket):
+        try:
+            data = bytearray()
+            try:
+                while True:
+                    buffer = sock.recv(16)
+                    if not buffer:
+                        break
+                    data += buffer
+                cmd = data.decode().strip().split()
+            except Exception as e:
+                raise RuntimeError(f"read error: {e}") 
+            match cmd[0]:
+                case "--stop":
+                    self._shutdown = True
+                case "--addp":
+                    try:
+                        with open("allow_list.csv", mode='a') as allow_list:
+                            writer = csv.writer(allow_list)
+                            name, uuid_str = cmd[1], cmd[2]
+                            uuid = UUID(uuid_str)
+
+                            Server._allowed_players.add((name, uuid))
+                            writer.writerow([name, uuid_str])
+                    except Exception as e:
+                        raise RuntimeError(f"--addp: {e}")
+                case default:
+                    raise ValueError("unknown command")
+        except Exception as e:
+            raise RuntimeError(f"cli_parse: {e}")
+    
+    @classmethod
+    def cli_send(cls, cmds: list[str]):
+        try:
+            if len(cmds) <= 1 or cmds[1] == "":
+                raise ValueError("invalid input")
+            if cmds[1] == "--addp" and (len(cmds) < 3 or cmds[2] == "" or cmds[3] == ""):
+                raise ValueError("invalid addp input")
+                
+            config = dotenv_values(".env")
+            ctrl_port = int(config["CTRL_PORT"] or "25566")
+
+            with socket.create_connection(("127.0.0.1", ctrl_port), timeout=0.1) as s:
+                data = ' '.join(cmds[1:])
+                s.sendall(data.encode())
+        except TimeoutError:
+            print(f"ERROR: server cli_send: is not running")
+        except Exception as e:
+            print(f"ERROR: server cli_send: {e}")
 
 if __name__ == '__main__':
     try:
-        if len(sys.argv) > 1 and sys.argv[1] == "--stop":
-            config = dotenv_values(".env")
-            ctrl_port = int(config["CTRL_PORT"] or "25566") 
-            
-            with socket.create_connection(("127.0.0.1", ctrl_port), timeout=0.1) as s:
-                s.sendall(b"STOP")
-            
-            print("Stop signal sent.")
-            sys.exit(0)
-    except TimeoutError:
-        print(f"ERROR: server is not running")
-        sys.exit(0)
-    except Exception as e:
-        print(f"ERROR: server shutdown command: {e}")
-        sys.exit(0)
-
-    try:
-        srv = Server()
-        srv.start()
+        if len(sys.argv) > 1:
+            Server.cli_send(sys.argv)
+        else:
+            srv = Server()
+            srv.start()
     except Exception as e:
         print(f"ERROR: {e}")
