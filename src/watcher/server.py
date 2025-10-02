@@ -1,43 +1,43 @@
+import os
 import csv
 import sys
 import socket
 import select
 import threading
+import time
 from uuid import UUID
-from dotenv import dotenv_values
+from dotenv import load_dotenv
 
-from ..packet.packet import Packet
-from ..packet.packet import Null
-from ..packet.packet import Status 
-from ..packet.packet import Login
-
-from .client import Client
-from .client import state
-
+from ..packet.packet import Packet, Null, Status, Login
+from .client import Client, state
 from .backend import Backend
 
 class Server:
 
     _allowed_players: set[tuple[str, UUID]] = set()
-    with open("allow_list.csv") as allow_list:
-        reader = csv.reader(allow_list)
-        for row in reader:
-            name = row[0]
-            uuid = UUID(row[1])
-            _allowed_players.add((name, uuid))
-    
     try:
-        _config = dotenv_values(".env")
-            
-        _server_ip = _config["SERVER_IP"]
-        _server_port = int(_config["SERVER_PORT"] or 25567)
-        _server_domain = _config["DOMAIN"]
-        _server_max_clients = int(_config["CLIENTS"] or "4" )
+        with open("allow_list.csv") as allow_list:
+            reader = csv.reader(allow_list)
+            for row in reader:
+                name = row[0]
+                uuid = UUID(row[1])
+                _allowed_players.add((name, uuid))
+    except FileNotFoundError:
+        print("LOG: allow_list.csv not found, continuing with empty allow list")
 
-        _ctrl_port = int(_config["CTRL_PORT"] or 25566)
+    try:
+        # Load .env for local runs; in containers, values come from env
+        load_dotenv(override=True)
 
-        # single backend for now
-        _backend = Backend(25565, "Minecraft", "minecraft-mc-1")
+        _server_ip = os.getenv("SERVER_IP", "0.0.0.0")
+        _server_port = int(os.getenv("SERVER_PORT", "25567"))
+        _server_domain = os.getenv("DOMAIN", "")
+        _server_max_clients = int(os.getenv("CLIENTS", "4"))
+
+        _ctrl_port = int(os.getenv("CTRL_PORT", "25566"))
+
+        _backend_port = int(os.getenv("BACKEND_PORT", "25565"))
+        _backend_folder = os.getenv("BACKEND_FOLDER", "Minecraft")
 
     except Exception as e:
         raise RuntimeError(f"exception during server config: {e}")
@@ -53,7 +53,6 @@ class Server:
                 self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self._server_socket.bind((Server._server_ip, Server._server_port))
                 self._server_socket.listen(Server._server_max_clients)
-                print(f"DEBUG: server_sock: {self._server_socket.getsockname()}")
             except Exception as e:
                 raise RuntimeError(f"Minecraft socket: {e}")
             try:
@@ -63,6 +62,7 @@ class Server:
                 self._ctrl_socket.listen(1)
             except Exception as e:
                 raise RuntimeError(f"Control socket: {e}")
+            print(f"LOG: server listening at {Server._server_ip}:{Server._server_port}, ctrl {Server._ctrl_port}")
         except Exception as e:
             raise RuntimeError(f"Exception during server init: {e}")
         
@@ -83,8 +83,7 @@ class Server:
                     client_sock, addr = self._server_socket.accept()
                     client = Client(client_sock, addr)
                     try:
-                        print(f"LOG: new: {client}")
-                        print(f"LOG: total clients: {len(self._clients)}")
+                        print(f"LOG: new: {client}, total: {len(self._clients)}")
 
                         t = threading.Thread(target=self._handle_client, daemon=True, args=(client,))
                         t.start()
@@ -107,6 +106,7 @@ class Server:
 
 
     def _handle_client(self, client: Client) -> None:
+        _backend = Backend(Server._backend_port, Server._backend_folder, "minecraft-mc-1")
         try:
             try:
                 with self._clients_lock:
@@ -152,6 +152,10 @@ class Server:
             try:
                 # If the first packet was a login handshake, then the client will immedietly send a start_login
                 if handshake.data[1] is Null.serverbound.handshake and handshake.data[5] == state.Login:
+                    # Baked in for now
+                    if handshake.data[2] != 772:
+                        return
+                        
                     login_start = Packet(client)
                     login_start.read()
                     print(login_start.data)
@@ -161,17 +165,17 @@ class Server:
                         return
 
                     if login_start.data[1] is Login.serverbound.login_start:
-                        if Server._backend.get_ctnr_status():
+                        if _backend.get_ctnr_status():
                             try:
-                                Server._backend.open_connection()
+                                _backend.open_connection()
                             except Exception as e:
-                                raise RuntimeError(f"exception while connecting to backend {e}")
+                                raise RuntimeError(f"exception while connecting to backend: {e}")
                             try:
-                                print("LOG: backend online, forwarding")
-                                handshake.forward(Server._backend)
-                                login_start.forward(Server._backend)
+                                print(f"LOG: backend online, forwarding {client}")
+                                handshake.forward(_backend)
+                                login_start.forward(_backend)
 
-                                self._forward(client, Server._backend)
+                                self._forward(client, _backend)
                                 
                                 return
                             
@@ -181,7 +185,7 @@ class Server:
                         else:
                             login_start.respond()
 
-                            if  Server._backend.container_start():
+                            if  _backend.container_start():
                                 print("LOG: backend start successfull")
                             else:
                                 print("LOG: backend start failed")
@@ -189,14 +193,14 @@ class Server:
             except Exception as e:
                 raise RuntimeError(f"login handshake: {e}")
         finally:
+            try: 
+                _backend.connection.close()
+            except Exception as e:
+                raise RuntimeError(f"closing backend connection: {e}")
             try:
                 client.connection.close()
             except Exception as e:
                 raise RuntimeError(f"closing client {e}")
-            try: 
-                Server._backend.connection.close()
-            except Exception as e:
-                raise RuntimeError(f"closing backend connection: {e}")
             try:
                 with self._clients_lock:
                     self._clients.remove(client)
@@ -204,6 +208,10 @@ class Server:
                 print(f"ERROR: no client key found")
 
     def _forward(self, client: Client, backend: Backend) -> None:
+        last_client_send: float | None = None
+        rtt_sum = 0.0
+        rtt_count = 0
+        sess_start = time.monotonic()
         try:
             client.connection.setblocking(True)
             backend.connection.setblocking(True)
@@ -220,6 +228,7 @@ class Server:
                             # client closed
                             return
                         backend.connection.sendall(data)
+                        last_client_send = time.monotonic()
                     else:
                         data = None
                         try:
@@ -229,9 +238,28 @@ class Server:
                         if not data:
                             # backend closed
                             return
+                        if last_client_send is not None:
+                            try:
+                                rtt = time.monotonic() - last_client_send
+                                if rtt >= 0:
+                                    rtt_sum += rtt
+                                    rtt_count += 1
+                            except Exception:
+                                pass
+                            finally:
+                                last_client_send = None
                         client.connection.sendall(data)
         except Exception as e:
             raise RuntimeError(f"forwarding loop: {e}")
+        finally:
+            print(f"LOG: forwarding done {client}")
+            try:
+                duration = time.monotonic() - sess_start
+                if rtt_count > 0:
+                    avg_ms = (rtt_sum / rtt_count) * 1000.0
+                    print(f"LOG: {client}: avg ping {avg_ms:.2f} ms over {rtt_count} samples (session {duration:.1f}s)")
+            except Exception:
+                pass
         
     def _cli_parse(self, sock: socket.socket):
         try:
@@ -271,9 +299,9 @@ class Server:
                 raise ValueError("invalid input")
             if cmds[1] == "--addp" and (len(cmds) < 3 or cmds[2] == "" or cmds[3] == ""):
                 raise ValueError("invalid addp input")
-                
-            config = dotenv_values(".env")
-            ctrl_port = int(config["CTRL_PORT"] or "25566")
+            
+            load_dotenv()
+            ctrl_port = int(os.getenv("CTRL_PORT", "25566"))
 
             with socket.create_connection(("127.0.0.1", ctrl_port), timeout=0.1) as s:
                 data = ' '.join(cmds[1:])

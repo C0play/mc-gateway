@@ -12,7 +12,7 @@ def read_uuid(sock: socket.socket) -> UUID:
 
 def read_u_short(sock: socket.socket) -> int:
     buffer = sock.recv(2)
-    return (buffer[0] << 8) | buffer[1]
+    return int.from_bytes(buffer, byteorder='big', signed=False)
 
 def read_long(sock: socket.socket) -> int:
     try:
@@ -39,10 +39,8 @@ def read_VarInt(sock: socket.socket) -> int:
 def read_String(sock: socket.socket) -> str:
     length = read_VarInt(sock)
     orig_msg = sock.recv(length)
-    msg = orig_msg
     try:
-        msg = msg.decode(encoding="utf8")
-        return msg
+        return orig_msg.decode(encoding="utf8")
     except Exception as e:
         print(f"Exception in read_String: {e} {orig_msg}")
         return ""

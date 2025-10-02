@@ -24,10 +24,10 @@ class Client:
         return hash((self.ip, self.port))
     
     def __repr__(self) -> str:
-        return f"Client(ip={self.ip}, port={self.port})"
+        return f"Client<ip={self.ip}, port={self.port}>"
     
     def __str__(self) -> str:
-        return f"Client(ip={self.ip}, port={self.port})"
+        return f"Client({self.ip}, {self.port})"
     
     def updateState(self, newState: int)  -> None:
         self.state = newState

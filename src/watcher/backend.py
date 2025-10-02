@@ -1,14 +1,14 @@
+import os
 import time
 import socket
 import subprocess
-from dotenv import dotenv_values
+from dotenv import load_dotenv
 
 class Backend():
-    config = dotenv_values(".env")
-
-    ip = config["BACKEND_IP"]
-    _mac = config["BACKEND_MAC"]
-    _admin = config["ADMIN"]
+    load_dotenv(override=True)
+    ip = os.getenv("BACKEND_IP", "127.0.0.1")
+    _mac = os.getenv("BACKEND_MAC", "00:00:00:00:00:00")
+    _admin = os.getenv("ADMIN", "root")
     _status = False
 
     def __init__(self, port: int, container_directory: str, container_name: str) -> None:
