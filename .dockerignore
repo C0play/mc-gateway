@@ -1,0 +1,26 @@
+# Exclude VCS and local env
+.git
+.gitignore
+
+# Python cache and venvs
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# Local env files and secrets
+.env
+*.log
+
+# IDE/editor junk
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Build artifacts
+build/
+dist/
+*.egg-info/

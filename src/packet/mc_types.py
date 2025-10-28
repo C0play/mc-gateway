@@ -22,28 +22,55 @@ def read_long(sock: socket.socket) -> int:
         raise RuntimeError(f"Exception in read_long: {e}")
 
 def read_VarInt(sock: socket.socket) -> int:
-    res = 0
-    
-    buffer = sock.recv(1)
-    i = 0
-    while (buffer[0] & CONTINUE_BIT):
-        res += (buffer[0] ^ CONTINUE_BIT) << (i * 7)
-        
-        buffer = sock.recv(1)
-        i += 1
-    
-    res += buffer[0] << (i * 7)
-
-    return res
-    
-def read_String(sock: socket.socket) -> str:
-    length = read_VarInt(sock)
-    orig_msg = sock.recv(length)
     try:
-        return orig_msg.decode(encoding="utf8")
+        i = 0
+        res = 0
+        buffer = sock.recv(1)
+        if not buffer:
+            raise BufferError()
+        
+        while (buffer[0] & CONTINUE_BIT):
+            res += (buffer[0] ^ CONTINUE_BIT) << (i * 7)
+            
+            buffer = sock.recv(1)
+            if not buffer:
+                raise BufferError()
+            
+            i += 1
+            if i > 5:  # VarInt max is 5 bytes
+                raise ValueError("VarInt too long")
+        
+        res += buffer[0] << (i * 7)
+        return res
+
+    except IndexError:
+        raise IndexError(f"IndexError while reading VarInt")
+    except BufferError:
+        raise BufferError(f"no data received after continuation bit")
+    except (ConnectionResetError, BrokenPipeError, OSError) as e:
+        raise RuntimeError(f"connection closed while reading VarInt: {e}")
     except Exception as e:
-        print(f"Exception in read_String: {e} {orig_msg}")
-        return ""
+        raise RuntimeError(f"read_VarInt failed: {e}")
+
+def read_String(sock: socket.socket) -> str:
+    try:
+        length = read_VarInt(sock)
+        if length < 0 or length > 32767:
+            raise ValueError(f"Invalid string length: {length}")
+        
+        buffer = sock.recv(length)
+        if len(buffer) != length:
+            raise ValueError(f"Expected {length} bytes, got {len(buffer)}")
+        
+        msg =  buffer.decode(encoding="utf8")
+        return msg
+    except UnicodeDecodeError as e:
+        raise RuntimeError(f"invalid UTF-8 data: {e}")
+    except (ConnectionResetError, BrokenPipeError, OSError) as e:
+        raise RuntimeError(f"connection closed while reading string: {e}")
+    except Exception as e:
+        raise RuntimeError(f"read_String failed: {e}")
+
     
 # ----- Encoding -----
 

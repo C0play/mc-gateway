@@ -1,0 +1,21 @@
+services:
+  mc-watcher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mc-watcher:dev
+    container_name: mc-watcher
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # SSH keys
+      - ./config/id_ecdsa:/root/.ssh/id_ecdsa:ro
+      - ./config/id_ecdsa.pub:/root/.ssh/id_ecdsa.pub:ro
+      # Player whitelist (disabled for testing)
+      # - ./allow_list.csv:/app/allow_list.csv
+      # Host machine list (disabled for testing)
+      # - ./hosts.csv:/app/hosts.csv
+    restart: unless-stopped

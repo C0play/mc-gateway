@@ -8,9 +8,8 @@ class state(IntEnum):
     Transfer = 3
 
 class Client:
-    mappings = {}
     def __init__(self, client_socket: socket.socket, addr: tuple[str, int]) -> None:
-        self.connection = client_socket
+        self.socket = client_socket
         self.ip = addr[0]
         self.port = addr[1]
         self.state = state.Null
@@ -27,7 +26,7 @@ class Client:
         return f"Client<ip={self.ip}, port={self.port}>"
     
     def __str__(self) -> str:
-        return f"Client({self.ip}, {self.port})"
+        return f"Client<{self.ip}, {self.port}>"
     
     def updateState(self, newState: int)  -> None:
         self.state = newState

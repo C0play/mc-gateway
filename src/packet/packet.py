@@ -2,10 +2,10 @@ from enum import IntEnum
 
 from ..watcher.client import state
 from ..watcher.client import Client
-from ..watcher.backend import Backend 
-from ..mc_types import mc_types as mct
+from ..watcher.backend import Backend
+from . import mc_types as mct
 
-class Null(IntEnum):
+class Null():
     class serverbound(IntEnum):
         handshake = 0x00
 
@@ -29,48 +29,58 @@ class Packet:
         self.data = []
 
     def read(self) -> None:
-        packet_length = mct.read_VarInt(self.client.connection)
-        packet_proto = mct.read_VarInt(self.client.connection)
+        try:
+            packet_length = mct.read_VarInt(self.client.socket)
+            packet_proto = mct.read_VarInt(self.client.socket)
 
-        match self.client.state:
-            case state.Null:
-                if packet_proto != Null.serverbound.handshake:
-                    raise ValueError(f"at null packet state, a packet with an undefined protocol has been received: {hex(packet_proto)}")
+            match self.client.state:
+                case state.Null:
+                    if packet_length == 0xFE: # Legacy ping uses a different format
+                        raise NotImplementedError("legacy packet")
                     
-                proto_version = mct.read_VarInt(self.client.connection)
-                addr = mct.read_String(self.client.connection)
-                port =  mct.read_u_short(self.client.connection)
-                new_intent =  mct.read_VarInt(self.client.connection)
+                    if packet_proto != Null.serverbound.handshake:
+                        raise ValueError(f"at null packet state, a packet with an undefined protocol has been received: {packet_proto}")
+                        
+                    proto_version = mct.read_VarInt(self.client.socket)
+                    addr = mct.read_String(self.client.socket)
+                    port =  mct.read_u_short(self.client.socket)
+                    new_intent =  mct.read_VarInt(self.client.socket)
 
-                self.client.updateState(new_intent)
-                self.data = [packet_length, Null.serverbound.handshake, proto_version, addr, port, new_intent]
+                    self.client.updateState(new_intent)
+                    self.data = [packet_length, Null.serverbound.handshake, proto_version, addr, port, new_intent]
 
-            case state.Status:
-                if packet_proto == Status.serverbound.status_request:
-                    self.data = [packet_length, Status.serverbound.status_request]
-                elif packet_proto == Status.serverbound.ping_request:
-                    payload = mct.read_long(self.client.connection)
-                    self.data = [packet_length, Status.serverbound.ping_request, payload]
-                else: 
+                case state.Status:
+                    if packet_proto == Status.serverbound.status_request:
+                        self.data = [packet_length, Status.serverbound.status_request]
+                    elif packet_proto == Status.serverbound.ping_request:
+                        payload = mct.read_long(self.client.socket)
+                        self.data = [packet_length, Status.serverbound.ping_request, payload]
+                    else: 
+                        self.data = [packet_length, hex(packet_proto)]
+                        raise ValueError(f"at status packet state, a packet with an undefined protocol has been received: {hex(packet_proto)}") 
+                case state.Login:
+                    if packet_proto == Login.serverbound.login_start:
+                        name = mct.read_String(self.client.socket)
+                        uuid = mct.read_uuid(self.client.socket)
+                        self.data = [packet_length, Login.serverbound.login_start, name, uuid]
+                    else: 
+                        self.data = [packet_length, hex(packet_proto)]
+                        raise ValueError(f"at login packet state, a packet with an undefined protocol has been received: {hex(packet_proto)}") 
+
+                case state.Transfer:
                     self.data = [packet_length, hex(packet_proto)]
-                    raise ValueError(f"at status packet state, a packet with an undefined protocol has been received: {hex(packet_proto)}") 
-            case state.Login:
-                if packet_proto == Login.serverbound.login_start:
-                    name = mct.read_String(self.client.connection)
-                    uuid = mct.read_uuid(self.client.connection)
-                    self.data = [packet_length, Login.serverbound.login_start, name, uuid]
-                else: 
+                    raise NotImplementedError(f"transfer packet state: {hex(packet_proto)}") 
+
+                case default:
                     self.data = [packet_length, hex(packet_proto)]
-                    raise ValueError(f"at login packet state, a packet with an undefined protocol has been received: {hex(packet_proto)}") 
+                    raise ValueError(f"unexpected state in Packet class: {default}")
+        except NotImplementedError as e:
+            self.data = []
+            raise e 
+        except Exception as e:
+            self.data = []
+            raise RuntimeError(f"failed to read packet: {e}")
 
-            case state.Transfer:
-                self.data = [packet_length, hex(packet_proto)]
-                raise ValueError(f"transfer packet state has been reached (unimplemented): {hex(packet_proto)}") 
-
-            case default:
-                self.data = [packet_length, hex(packet_proto)]
-                raise ValueError(f"unexpected state in Packet class: {default}")
-    
     def respond(self) -> None:
         data = None
         packet_type = self.data[1]
@@ -92,7 +102,7 @@ class Packet:
         else:
             raise ValueError("invalid packet type")
         
-        self.client.connection.sendall(data)
+        self.client.socket.sendall(data)
     
     def forward(self, backend: Backend):
         data = None
@@ -110,7 +120,7 @@ class Packet:
         else:
             raise ValueError("this packet type can not be forwarded")
         
-        backend.connection.sendall(data)
+        backend.socket.sendall(data)
 
     @staticmethod
     def _encode_disconnect_login() -> bytearray:
@@ -128,7 +138,7 @@ class Packet:
                         "protocol": 772
                     }},
                     "players": {{
-                        "max": 20,
+                        "max": 0,
                         "online": 0
                     }},
                     "description": {{
