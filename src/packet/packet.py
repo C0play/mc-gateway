@@ -28,7 +28,7 @@ class Packet:
         self.client = client
         self.data = []
 
-    def read(self) -> None:
+    def read(self) -> 'Packet':
         try:
             packet_length = mct.read_VarInt(self.client.socket)
             packet_proto = mct.read_VarInt(self.client.socket)
@@ -42,6 +42,9 @@ class Packet:
                         raise ValueError(f"at null packet state, a packet with an undefined protocol has been received: {packet_proto}")
                         
                     proto_version = mct.read_VarInt(self.client.socket)
+                    if proto_version != 772:
+                        raise NotImplementedError(f"unsupported protocol version: {proto_version}")
+                    
                     addr = mct.read_String(self.client.socket)
                     port =  mct.read_u_short(self.client.socket)
                     new_intent =  mct.read_VarInt(self.client.socket)
@@ -74,6 +77,9 @@ class Packet:
                 case default:
                     self.data = [packet_length, hex(packet_proto)]
                     raise ValueError(f"unexpected state in Packet class: {default}")
+            
+            return self
+                
         except NotImplementedError as e:
             self.data = []
             raise e 
@@ -81,7 +87,7 @@ class Packet:
             self.data = []
             raise RuntimeError(f"failed to read packet: {e}")
 
-    def respond(self) -> None:
+    def respond(self, login_disc_msg: str | None = None, colour: str | None = None) -> None:
         data = None
         packet_type = self.data[1]
         if packet_type is Status.serverbound.status_request:
@@ -96,7 +102,7 @@ class Packet:
                 raise RuntimeError(f"send pong_res: {e}")
         elif packet_type is Login.serverbound.login_start:
             try:
-                data = Packet._encode_disconnect_login()
+                data = Packet._encode_disconnect_login(login_disc_msg, colour)
             except Exception as e:
                 raise RuntimeError(f"send disconnect: {e}")
         else:
@@ -123,8 +129,11 @@ class Packet:
         backend.socket.sendall(data)
 
     @staticmethod
-    def _encode_disconnect_login() -> bytearray:
+    def _encode_disconnect_login(disconnect_msg: str | None, colour: str | None) -> bytearray:
         msg = '{text: "Server is starting, please wait.", color: "green"}'
+        if disconnect_msg:
+            msg = f"""{{text: "{disconnect_msg}", color: "{colour}"}}"""
+            
         packet_id = mct.write_VarInt(Login.clientbound.disconnect_login)
         packet_data = mct.write_String(msg)
         return Packet._assemble_packet(packet_id, packet_data)

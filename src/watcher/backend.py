@@ -6,6 +6,8 @@ import threading
 import subprocess
 from dotenv import load_dotenv
 
+
+
 class Host():
 
     def __init__(self, mac: str, ip: str, user: str, path: str) -> None:
@@ -96,7 +98,7 @@ class Container():
     idle_timeout: int
 
     @classmethod
-    def _load_config(cls):
+    def _load_config(cls) -> None:
         if cls._config_loaded:
             return
         cls._config_loaded = True
@@ -170,7 +172,7 @@ class Container():
         except Exception as e:
             raise RuntimeError(f"container start failed: {e}")
         
-    def stop(self):
+    def stop(self) -> bool:
         try:
             with self._stop_lock:
                 if not self.is_online():
@@ -198,46 +200,47 @@ class Container():
 class Backend():
 
     def __init__(self, container: Container) -> None:
-        self.container: Container = container
+        self._container: Container = container
 
         self.socket: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._is_connected: bool = False
 
 
-    def is_connected(self):
+    def is_connected(self) -> bool:
         return self._is_connected
     
     
-    def is_online(self):
-        return self.container.is_online()
+    def is_online(self) -> bool:
+        return self._container.is_online()
 
 
     def is_starting(self) -> bool:
-        return self.container.is_starting()
+        return self._container.is_starting()
 
 
-    def start(self):
+    def start(self) -> bool:
         try:
-            if not self.container.is_online():
-                if not self.container.start():
+            if not self._container.is_online():
+                if not self._container.start():
                     return False
+            return True
         except Exception as e:
-            raise RuntimeError(f"failed to prepare container {self.container.name}: {e}")
+            raise RuntimeError(f"failed to prepare container {self._container.name}: {e}")
 
 
     def connect(self) -> None:
         try:
-            if not self.container.host.is_online():
+            if not self._container.host.is_online():
                 raise RuntimeError(f"can not connect if host is offline")
             
-            if not self.container.is_online():
+            if not self._container.is_online():
                 raise RuntimeError(f"can not connect if container is offline")
         
             attempts, wait_time = 6, 10
             for attempt in range(attempts):
                 try:
                     self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    self.socket.connect((self.container.host.ip, self.container.port))
+                    self.socket.connect((self._container.host.ip, self._container.port))
                     self._is_connected = True
                     print(f"LOG: connected to backend on attempt {attempt + 1}")
                     return
@@ -268,7 +271,7 @@ class BackendPool():
     _hosts: dict[str, Host] = {} # ip -> Host
 
     @classmethod
-    def _load_hosts(cls, hosts_file: str):
+    def _load_hosts(cls, hosts_file: str) -> None:
         with open(hosts_file) as hosts:
             reader = csv.reader(hosts)
             for row in reader:
@@ -276,7 +279,7 @@ class BackendPool():
                 cls._hosts.setdefault(ip, Host(mac, ip, user, path))
 
 
-    def __init__(self, hosts_file: str, ) -> None:
+    def __init__(self, hosts_file: str) -> None:
         Container._load_config()
         BackendPool._load_hosts(hosts_file)
 
@@ -307,7 +310,7 @@ class BackendPool():
 
 
     @classmethod
-    def update_timestamp(cls, ip: str, port: int):
+    def update_timestamp(cls, ip: str, port: int) -> None:
         with cls._backends_lock:
             if ip in cls._backends and port in cls._backends[ip]:
                 backend, _= cls._backends[ip][port]
@@ -324,7 +327,7 @@ class BackendPool():
                 with cls._backends_lock:
                     for ip, _ in cls._backends.items():
                         for port, (backend, last_used) in cls._backends[ip].items():
-                            if curr_time - last_used > backend.container.idle_timeout:
+                            if curr_time - last_used > backend._container.idle_timeout:
                                 to_be_deleted.append((ip, port))
                     
                         if not cls._backends[ip] and cls._hosts[ip].is_online():
@@ -332,7 +335,7 @@ class BackendPool():
                             print(f"LOG: host {ip} was idle, shutting down")
                     
                     for ip, port in to_be_deleted:
-                        cls._backends[ip][port][0].container.stop()
+                        cls._backends[ip][port][0]._container.stop()
                         cls._backends[ip][port][0].disconnect()
                         del cls._backends[ip][port]
             except Exception as e:

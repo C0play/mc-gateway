@@ -25,12 +25,8 @@ class Server:
     
     _backend_pool: BackendPool
 
-    _allowed_players_lock = threading.Lock()
-    _allowed_players: dict[str, tuple[str, int]] = {}
-    
-
     @classmethod
-    def _load_config(cls):
+    def load_config(cls, hosts_file_name: str, whitelist_file_name: str):
         if cls._config_loaded:
             return
         cls._config_loaded = True
@@ -41,23 +37,17 @@ class Server:
             cls._server_domain = os.getenv("DOMAIN", "")
             cls._server_max_clients = int(os.getenv("CLIENTS", "4"))
             
-            cls._backend_pool = BackendPool("hosts.csv")
+            cls._backend_pool = BackendPool(hosts_file_name)
+            Client.load_config(whitelist_file_name)
             
-            with  cls._allowed_players_lock, open("allow_list.csv") as allow_list:
-                reader = csv.reader(allow_list)
-                for row in reader:
-                    name, ip, port = row
-                    cls._allowed_players.setdefault(name, (ip, int(port)))
-        
-        except FileNotFoundError:
-            print("ERROR: allow_list.csv not found, continuing with empty allow list")
         except Exception as e:
             raise RuntimeError(f"exception during server config: {e}")
 
 
     def __init__(self) -> None:
         try:
-            Server._load_config()
+            Server.load_config("hosts.csv", "allow_list.csv")
+            
             self._shutdown = False
             
             self._client_count_lock = threading.Lock()
@@ -87,6 +77,7 @@ class Server:
             print(f"LOG: server listening at {Server._server_ip}:{Server._server_port}, ctrl {Server._ctrl_port}")
         except Exception as e:
             raise RuntimeError(f"Exception during server init: {e}")
+    
     
     def start(self) -> None:
         try:
@@ -130,18 +121,19 @@ class Server:
     def _handle_client(self, client: Client) -> None:
         try:
             try:
-                handshake = Packet(client)
-                handshake.read()
+                handshake = Packet(client).read()
+
                 if handshake.data[3] != Server._server_domain:
                     return
                 if len(handshake.data) < 2:
                     return
                 if not handshake.data[1] is Null.serverbound.handshake:
                     return
+                
                 print(f"LOG: {client} {handshake.data}")
                         
             except NotImplementedError as e:
-                print(f"LOG: {client} {e}")
+                print(f"WARN: {client} {e}")
                 return
             except (ConnectionResetError, BrokenPipeError, OSError) as e:
                 print(f"LOG: {client} disconnected during handshake")
@@ -152,21 +144,20 @@ class Server:
             try:
                 # If the first packet was a status handshake, then the client will immedietly send a status request
                 if handshake.data[1] is Null.serverbound.handshake and handshake.data[5] == state.Status:
-                    status_req = Packet(client)
-                    status_req.read()
+                    status_req = Packet(client).read()
                     print(f"LOG: {client} {status_req.data}")
                         
                     if status_req.data[1] is Status.serverbound.status_request:
                         status_req.respond()
-                        # Then the client sends a ping request
-                        ping_req = Packet(client)
-                        ping_req.read()
+
+                        ping_req = Packet(client).read()
                         print(f"LOG: {client} {ping_req.data}")
 
                         if ping_req.data[1] is Status.serverbound.ping_request:
                             ping_req.respond()
 
                     return
+                
             except (ConnectionResetError, BrokenPipeError, OSError) as e:
                 print(f"LOG: {client} disconnected during status")
                 return
@@ -176,51 +167,51 @@ class Server:
             try:
                 # If the first packet was a login handshake, then the client will immedietly send a start_login
                 if handshake.data[1] is Null.serverbound.handshake and handshake.data[5] == state.Login:
-                    if handshake.data[2] != 772: # Baked in for now
-                        return
-                        
-                    login_start = Packet(client)
-                    login_start.read()
+                    login_start = Packet(client).read()
                     print(f"LOG: {client} {login_start.data}")
 
-                    
                     if login_start.data[1] is Login.serverbound.login_start:
-                        client_name = login_start.data[2]
-                        with Server._allowed_players_lock:
-                            if client_name not in Server._allowed_players:
-                                print(f"LOG: {client} unknown player tried logging in: {(client_name, login_start.data[3])}")
-                                return
-                            
-                            client_mapped_ip, client_mapped_port = Server._allowed_players[client_name]
+                        username = login_start.data[2]
+                        ip, port = Client.validate(username)
                         
-                        _backend = Server._backend_pool.get(client_mapped_ip, client_mapped_port)
+                        if not ip or not port: 
+                            print(f"LOG: {client} unknown player tried logging in: {(username, login_start.data[3])}")
+                            return
+                        
+                        backend = Server._backend_pool.get(ip, port)
 
-                        if _backend.is_online():
+                        if backend.is_online():
                             print(f"LOG: {client} backend online, forwarding...")
                             try:
-                                _backend.connect()
-                                handshake.forward(_backend)
-                                login_start.forward(_backend)
-                                self._forward(client, _backend)
+                                backend.connect()
+
+                                handshake.forward(backend)
+                                login_start.forward(backend)
+                                
+                                self._forward(client, backend)
                             except Exception as e:
                                 print(f"LOG: {client} backend connection failed (server starting?): {e}")
-                                login_start.respond()
+                                login_start.respond("Can't connect to server.", "red")
                         else:
-                            login_start.respond()
+                            print(f"LOG: {client} backend offline, starting...")
                             
-                            if _backend.is_starting():
+                            if backend.is_starting():
+                                login_start.respond("Server is starting, please wait.", "green")
                                 print(f"LOG: {client} backend start already in progress")
                                 return
                             
-                            print(f"LOG: {client} backend offline, starting...")
+                            login_start.respond("Server is offline, starting.", "aqua")
+                            
                             try:
-                                if _backend.start():
+                                if backend.start():
                                     print(f"LOG: {client} backend online")
                                 else:
                                     print(f"LOG: {client} backend start failed")
                             except Exception as e:
                                 print(f"ERROR: {client} backend container start: {e}")
             
+            except NotImplementedError as e:
+                print(f"WARN: {client} {e}")
             except (CalledProcessError) as e:
                 print(f"ERROR: {client} subprocess command failed {e}")
             except (ConnectionResetError, BrokenPipeError) as e:
@@ -230,10 +221,8 @@ class Server:
         except Exception as e:
             print(f"ERROR: {client}: {e}")
         finally:
-            try:
-                client.socket.close()
-            except Exception as e:
-                raise RuntimeError(f"LOG: {client} closing client {e}")
+            client.close()
+
 
     def _forward(self, client: Client, backend) -> None:
         Server._backend_pool.update_timestamp(backend.container.host.ip, backend.container.port)
@@ -278,8 +267,7 @@ class Server:
                             return
                         if last_client_send is not None:
                             try:
-                                rtt = time.monotonic() - last_client_send
-                                if rtt >= 0:
+                                if rtt := (time.monotonic() - last_client_send) >= 0:
                                     rtt_sum += rtt
                                     rtt_count += 1
                             except Exception:
@@ -291,6 +279,7 @@ class Server:
                         except (BrokenPipeError, ConnectionResetError, OSError) as e:
                             print(f"LOG: {client} client disconnected during forward")
                             return
+                        
         except (ConnectionResetError, BrokenPipeError, OSError) as e:
             print(f"LOG: {client} connection closed unexpectedly")
         except Exception as e:
@@ -298,11 +287,11 @@ class Server:
         finally:
             print(f"LOG: forwarding done {client}")
             with self._client_count_lock:
-                self._client_count += 1
+                self._client_count -= 1
             try:
-                duration = time.monotonic() - sess_start
                 if rtt_count > 0:
                     avg_ms = (rtt_sum / rtt_count) * 1000.0
+                    duration = time.monotonic() - sess_start
                     print(f"LOG: {client}: avg ping {avg_ms:.2f} ms over {rtt_count} samples (session {duration:.1f}s)")
             except Exception:
                 pass
@@ -329,22 +318,21 @@ class Server:
                     response = {"status": "ERROR", "message": "usage: --addp <name> <host_ip> <container_port>"}
                 else:
                     name, ip, port = cmd[1], cmd[2], cmd[3]
-                    try:
-                        with Server._allowed_players_lock:
-                            Server._allowed_players.setdefault(name, (ip, int(port)))
-                    
-                        with open("allow_list.csv", mode='a') as allow_list:
-                            writer = csv.writer(allow_list)
-                            writer.writerow([name, port])
+                    if Client.whitelist.add(name, ip, port):
                         response = {"status": "OK", "message": f"player {name} added"}
-                    
-                    except ValueError as e:
-                        response = {"status": "ERROR", "message": f"invalid UUID: {e}"}
-                
+                    else:
+                        response = {"status": "ERROR", "message": f"addition failed"}
+            elif cmd[0] == "--removep":
+                if len(cmd[1:]) < 2:
+                    response = {"status": "ERROR", "message": "usage: --removep <name>"}
+                else:
+                    name = cmd[1]
+                    if Client.whitelist.remove(name):
+                        response = {"status": "OK", "message": f"player {name} removed"}
+                    else:
+                        response = {"status": "ERROR", "message": f"removal failed, file not changed"}
             elif cmd[0] == "--list":
-                with Server._allowed_players_lock:
-                    players = [{"name": name, "uuid": str(uuid)} for name, uuid in Server._allowed_players]
-                response = {"status": "OK", "players": players}
+                response = {"status": "OK", "players": Client.whitelist.to_dict()}
                 
             else:
                 response = {"status": "ERROR", "message": f"unknown command {cmd[0]}"}
@@ -359,6 +347,7 @@ class Server:
             finally:
                 sock.close()
     
+
     @classmethod
     def send_cmd(cls, cmds: list[str]) -> int:
         try:
@@ -386,9 +375,9 @@ class Server:
                     if "backend_host_status" in response:
                         print(f"Backend host online: {response['backend_host_status']}")
                     if "players" in response:
-                        print("Allowed players:")
-                        for player in response["players"]:
-                            print(f"  {player['name']} ({player['uuid']})")
+                        print("Whitelist:")
+                        for username, info in response['players'].items():
+                            print(f"  {username}: {info['ip']}:{info['port']}")
                     return 0
                 else:
                     print(f"ERROR: {response['message']}")
@@ -404,6 +393,7 @@ class Server:
             print(f"ERROR: {e}")
             return 1
         
+
     def _signal_handler(self, signum, _):
         print(f"LOG: received: {signum}. Closing...")
         self._shutdown = True
