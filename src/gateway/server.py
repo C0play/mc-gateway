@@ -1,5 +1,4 @@
 import os
-import csv
 import json
 import time
 import socket
@@ -8,9 +7,12 @@ import signal
 import threading
 from dotenv import load_dotenv
 from subprocess import CalledProcessError 
+
 from ..packet.packet import Packet, Null, Status, Login
-from .client import Client, state
+from .client import Client, State
 from .backend import BackendPool
+from ..logger.logger import logger
+
 
 
 class Server:
@@ -24,6 +26,7 @@ class Server:
     _server_max_clients: int
     
     _backend_pool: BackendPool
+
 
     @classmethod
     def load_config(cls, hosts_file_name: str, whitelist_file_name: str):
@@ -74,7 +77,9 @@ class Server:
                 self._ctrl_socket.listen(1)
             except Exception as e:
                 raise RuntimeError(f"Control socket: {e}")
-            print(f"LOG: server listening at {Server._server_ip}:{Server._server_port}, ctrl {Server._ctrl_port}")
+            
+            logger.info(f"server listening at {Server._server_ip}:{Server._server_port}, ctrl {Server._ctrl_port}")
+        
         except Exception as e:
             raise RuntimeError(f"Exception during server init: {e}")
     
@@ -90,32 +95,32 @@ class Server:
                     try:
                         threading.Thread(target=self.handle_cmd, daemon=True, args=(control_sock,)).start()
                     except Exception as e:
-                        print(f"ERROR: control socket: {e}")
+                        logger.error(f"control socket: {e}")
                     
                 elif self._server_socket in readyl and not self._shutdown:
                     client_sock, addr = self._server_socket.accept()
                     client = Client(client_sock, addr)
                     try:
                         with self._client_count_lock:
-                            print(f"LOG: new {client}, total: {self._client_count}")
+                            logger.info(f"new {client}, total: {self._client_count}")
 
                         threading.Thread(target=self._handle_client, daemon=True, args=(client,)).start()
                     except Exception as e:
-                        print(f"ERROR: client handling: {e}")
+                        logger.error(f"client handling: {e}")
 
         except Exception as e:
-            print(f"ERROR: {e}")
+            logger.critical(f"server: {e}")
         finally:
-            print(f"LOG: cleaning resources")
+            logger.info(f"cleaning resources")
             try:
                 self._ctrl_socket.close()
             except Exception as e:
-                print(f"ERROR: closing ctrl_socket:  {e}")
+                logger.error(f"closing ctrl_socket: {e}")
             try:
                 self._server_socket.close()
             except Exception as e:
-                print(f"ERROR: closing mc_socket:  {e}")
-            print("LOG: Server stopped")
+                logger.error(f"closing mc_socket: {e}")
+            logger.info("Server stopped")
 
 
     def _handle_client(self, client: Client) -> None:
@@ -130,28 +135,29 @@ class Server:
                 if not handshake.data[1] is Null.serverbound.handshake:
                     return
                 
-                print(f"LOG: {client} {handshake.data}")
+                logger.info(f"{client} {handshake.data}")
                         
             except NotImplementedError as e:
-                print(f"WARN: {client} {e}")
+                logger.warning(f"{client} {e}")
                 return
             except (ConnectionResetError, BrokenPipeError, OSError) as e:
-                print(f"LOG: {client} disconnected during handshake")
+                logger.warning(f"{client} disconnected during handshake")
                 return
             except Exception as e:
                 raise RuntimeError(f"handshake: {e}")
             
             try:
                 # If the first packet was a status handshake, then the client will immedietly send a status request
-                if handshake.data[1] is Null.serverbound.handshake and handshake.data[5] == state.Status:
+                if handshake.data[1] is Null.serverbound.handshake and handshake.data[5] == State.Status:
                     status_req = Packet(client).read()
-                    print(f"LOG: {client} {status_req.data}")
+                    
+                    logger.info(f"{client} {status_req.data}")
                         
                     if status_req.data[1] is Status.serverbound.status_request:
                         status_req.respond()
 
                         ping_req = Packet(client).read()
-                        print(f"LOG: {client} {ping_req.data}")
+                        logger.info(f"{client} {ping_req.data}")
 
                         if ping_req.data[1] is Status.serverbound.ping_request:
                             ping_req.respond()
@@ -159,29 +165,30 @@ class Server:
                     return
                 
             except (ConnectionResetError, BrokenPipeError, OSError) as e:
-                print(f"LOG: {client} disconnected during status")
+                logger.warning(f"{client} disconnected during status")
                 return
             except Exception as e:
                 raise RuntimeError(f"status handshake: {e}")
             
             try:
                 # If the first packet was a login handshake, then the client will immedietly send a start_login
-                if handshake.data[1] is Null.serverbound.handshake and handshake.data[5] == state.Login:
+                if handshake.data[1] is Null.serverbound.handshake and handshake.data[5] == State.Login:
                     login_start = Packet(client).read()
-                    print(f"LOG: {client} {login_start.data}")
+
+                    logger.info(f"{client} {login_start.data}")
 
                     if login_start.data[1] is Login.serverbound.login_start:
                         username = login_start.data[2]
                         ip, port = Client.validate(username)
                         
                         if not ip or not port: 
-                            print(f"LOG: {client} unknown player tried logging in: {(username, login_start.data[3])}")
+                            logger.warning(f"{client} unknown player tried logging in: {(username, login_start.data[3])}")
                             return
                         
                         backend = Server._backend_pool.get(ip, port)
 
                         if backend.is_online():
-                            print(f"LOG: {client} backend online, forwarding...")
+                            logger.info(f"{client} backend online, forwarding...")
                             try:
                                 backend.connect()
 
@@ -190,36 +197,36 @@ class Server:
                                 
                                 self._forward(client, backend)
                             except Exception as e:
-                                print(f"LOG: {client} backend connection failed (server starting?): {e}")
+                                logger.error(f"{client} backend connection failed (server starting?): {e}")
                                 login_start.respond("Can't connect to server.", "red")
                         else:
-                            print(f"LOG: {client} backend offline, starting...")
+                            logger.info(f"{client} backend offline, starting...")
                             
                             if backend.is_starting():
                                 login_start.respond("Server is starting, please wait.", "green")
-                                print(f"LOG: {client} backend start already in progress")
+                                logger.info(f"{client} backend start already in progress")
                                 return
                             
                             login_start.respond("Server is offline, starting.", "aqua")
                             
                             try:
                                 if backend.start():
-                                    print(f"LOG: {client} backend online")
+                                    logger.info(f"{client} backend online")
                                 else:
-                                    print(f"LOG: {client} backend start failed")
+                                    logger.error(f"{client} backend start failed")
                             except Exception as e:
-                                print(f"ERROR: {client} backend container start: {e}")
+                                logger.error(f"{client} backend start: {e}")
             
             except NotImplementedError as e:
-                print(f"WARN: {client} {e}")
+                logger.warning(f"{client} {e}")
             except (CalledProcessError) as e:
-                print(f"ERROR: {client} subprocess command failed {e}")
+                logger.error(f"{client} subprocess command failed {e}")
             except (ConnectionResetError, BrokenPipeError) as e:
-                print(f"LOG: {client} disconnected during login")
+                logger.warning(f"{client} disconnected during login")
             except Exception as e:
                 raise RuntimeError(f"login handshake: {e}")
         except Exception as e:
-            print(f"ERROR: {client}: {e}")
+            logger.critical(f"{client}: {e}")
         finally:
             client.close()
 
@@ -247,13 +254,14 @@ class Server:
                             data = None
                         if not data: # client closed
                             return 
+                        
                         try:
                             backend.socket.sendall(data)
                         except (BrokenPipeError, ConnectionResetError, OSError) as e:
-                            print(f"LOG: {client} backend disconnected during forward")
+                            logger.error(f"{client} backend disconnected during forwarding")
                             return
-                        last_client_send = time.monotonic()
 
+                        last_client_send = time.monotonic()
                         Server._backend_pool.update_timestamp(backend.container.host.ip, backend.container.port)
 
                     else:
@@ -263,36 +271,34 @@ class Server:
                         except (BlockingIOError, OSError):
                             data = None
                         if not data: # backend closed
-                            print(f"LOG: {client} backend disconnected during forward")
+                            logger.error(f"{client} backend disconnected during forwarding")
                             return
-                        if last_client_send is not None:
-                            try:
-                                if rtt := (time.monotonic() - last_client_send) >= 0:
-                                    rtt_sum += rtt
-                                    rtt_count += 1
-                            except Exception:
-                                pass
-                            finally:
-                                last_client_send = None
+                        
                         try:
                             client.socket.sendall(data)
                         except (BrokenPipeError, ConnectionResetError, OSError) as e:
-                            print(f"LOG: {client} client disconnected during forward")
+                            logger.info(f"{client} client disconnected during forwarding")
                             return
                         
+                        if last_client_send is not None:
+                            if rtt := (time.monotonic() - last_client_send) >= 0:
+                                rtt_sum += rtt
+                                rtt_count += 1
+                            last_client_send = None
+                        
         except (ConnectionResetError, BrokenPipeError, OSError) as e:
-            print(f"LOG: {client} connection closed unexpectedly")
+            logger.error(f"{client} connection closed unexpectedly {e}")
         except Exception as e:
-            print(f"ERROR: {client} forwarding error: {e}")
+            logger.error(f"{client} forwarding error: {e}")
         finally:
-            print(f"LOG: forwarding done {client}")
+            logger.info(f"{client} forwarding done")
             with self._client_count_lock:
                 self._client_count -= 1
             try:
                 if rtt_count > 0:
                     avg_ms = (rtt_sum / rtt_count) * 1000.0
                     duration = time.monotonic() - sess_start
-                    print(f"LOG: {client}: avg ping {avg_ms:.2f} ms over {rtt_count} samples (session {duration:.1f}s)")
+                    logger.info(f"{client}: avg ping {avg_ms:.2f} ms over {rtt_count} samples (session {duration:.1f}s)")
             except Exception:
                 pass
 
@@ -395,7 +401,8 @@ class Server:
         
 
     def _signal_handler(self, signum, _):
-        print(f"LOG: received: {signum}. Closing...")
+        logger.info(f"received: {signum}. Closing...")
+        # print(f"LOG: received: {signum}. Closing...")
         self._shutdown = True
         try:
             with socket.create_connection(("127.0.0.1", Server._ctrl_port), timeout=0.2) as s:

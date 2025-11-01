@@ -1,5 +1,6 @@
 import sys
 from .server import Server
+from ..logger.logger import logger
 
 def main():
     try:
@@ -9,7 +10,7 @@ def main():
             srv = Server()
             srv.start()
     except Exception as e:
-        print(f"ERROR: {e}")
+        logger.critical("uncaught exception", exc_info=True)
         return 1
 
 if __name__ == '__main__':

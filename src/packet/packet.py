@@ -1,9 +1,12 @@
 from enum import IntEnum
 
-from ..watcher.client import state
-from ..watcher.client import Client
-from ..watcher.backend import Backend
+from ..gateway.client import State
+from ..gateway.client import Client
+from ..gateway.backend import Backend
 from . import mc_types as mct
+from ..logger.logger import logger
+
+
 
 class Null():
     class serverbound(IntEnum):
@@ -34,7 +37,7 @@ class Packet:
             packet_proto = mct.read_VarInt(self.client.socket)
 
             match self.client.state:
-                case state.Null:
+                case State.Null:
                     if packet_length == 0xFE: # Legacy ping uses a different format
                         raise NotImplementedError("legacy packet")
                     
@@ -52,7 +55,7 @@ class Packet:
                     self.client.updateState(new_intent)
                     self.data = [packet_length, Null.serverbound.handshake, proto_version, addr, port, new_intent]
 
-                case state.Status:
+                case State.Status:
                     if packet_proto == Status.serverbound.status_request:
                         self.data = [packet_length, Status.serverbound.status_request]
                     elif packet_proto == Status.serverbound.ping_request:
@@ -61,7 +64,7 @@ class Packet:
                     else: 
                         self.data = [packet_length, hex(packet_proto)]
                         raise ValueError(f"at status packet state, a packet with an undefined protocol has been received: {hex(packet_proto)}") 
-                case state.Login:
+                case State.Login:
                     if packet_proto == Login.serverbound.login_start:
                         name = mct.read_String(self.client.socket)
                         uuid = mct.read_uuid(self.client.socket)
@@ -70,7 +73,7 @@ class Packet:
                         self.data = [packet_length, hex(packet_proto)]
                         raise ValueError(f"at login packet state, a packet with an undefined protocol has been received: {hex(packet_proto)}") 
 
-                case state.Transfer:
+                case State.Transfer:
                     self.data = [packet_length, hex(packet_proto)]
                     raise NotImplementedError(f"transfer packet state: {hex(packet_proto)}") 
 

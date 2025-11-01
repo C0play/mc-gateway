@@ -3,21 +3,23 @@ import socket
 import threading
 from enum import IntEnum
 
-class state(IntEnum):
+
+class State(IntEnum):
     Null = 0
     Status = 1
     Login = 2
     Transfer = 3
 
+
 class Whitelist():
 
     def __init__(self, file_name: str) -> None:
-
         self._list_lock = threading.Lock()
         self._list: dict[str, tuple[str, int]] = {}
         self._file_name = file_name
         self._load(file_name)
 
+    
     def _load(self, file_name: str):
         try:
             with  self._list_lock, open("allow_list.csv") as allow_list:
@@ -27,10 +29,11 @@ class Whitelist():
                     self._list.setdefault(name, (ip, int(port)))
         
         except FileNotFoundError:
-            print(f"ERROR: {file_name} not found, continuing with empty allow list")
+            raise FileNotFoundError(f"{file_name} not found, continuing with empty whitelist")
         except Exception as e:
-            raise RuntimeError(f"whitelist configuration failed")
+            raise RuntimeError(f"whitelist configuration failed {e}")
     
+
     def add(self, username: str, ip: str, port: int) -> bool:
         try:
             with self._list_lock:
@@ -47,6 +50,7 @@ class Whitelist():
             return True
         except ValueError as e:
             return False
+
 
     def remove(self, username: str) -> bool:
         file_backup = None
@@ -90,21 +94,25 @@ class Whitelist():
         with self._list_lock:
             return self._list[item]
         
+
     def __str__(self) -> str:
         temp = ''
         for name, (ip, port) in self._list.items():
             temp += f"{name}, {ip}, {port}\n"
         return temp  
 
+
     def __repr__(self) -> str:
         temp = ''
         for name, (ip, port) in self._list.items():
             temp += f"{name}, {ip}, {port}\n"
         return temp
-    
+
+
     def __contains__(self, key: str):
         return key in self._list
-    
+
+
     def to_dict(self) -> dict[str, dict[str, str | int]]:
         with self._list_lock:
             return {
@@ -113,10 +121,13 @@ class Whitelist():
             }
 
 
+
 class Client():
+
     _config_loaded: bool = False
     _whitelist_file_name: str | None = None
     whitelist: Whitelist
+
 
     @classmethod
     def load_config(cls, file_name: str | None = None):
@@ -124,12 +135,12 @@ class Client():
             if cls._config_loaded:
                 return
             cls._config_loaded = True
-            if cls._whitelist_file_name:
-                cls.whitelist = Whitelist(cls._whitelist_file_name)
-            elif file_name:
+            if file_name:
                 cls.whitelist = Whitelist(file_name)
+            elif cls._whitelist_file_name:
+                cls.whitelist = Whitelist(cls._whitelist_file_name)
             else:
-                raise ValueError("whitelist file name is not set and none was provided")
+                raise ValueError("whitelist file name is not set and none was provided to constructor")
         except Exception as e:
             raise RuntimeError(f"client configuration failed to load: {e}")
 
@@ -139,10 +150,12 @@ class Client():
         self.socket = client_socket
         self.ip = addr[0]
         self.port = addr[1]
-        self.state = state.Null
+        self.state = State.Null
+
 
     def updateState(self, newState: int)  -> None:
         self.state = newState
+
 
     def close(self):
         try:
@@ -150,6 +163,7 @@ class Client():
         except Exception as e:
             raise RuntimeError(f"LOG: {self} closing client {e}")
     
+
     @classmethod
     def validate(cls, username: str) -> tuple[str | None, int | None]:
         Client.load_config()
@@ -159,17 +173,21 @@ class Client():
         ip, port = cls.whitelist[username]
         return ip, port
 
+
     def __eq__(self, other) -> bool:
         if not isinstance(other, Client):
             return False
         return self.port == other.port if self.ip == other.ip else False
-    
+
+
     def __hash__(self) -> int:
         return hash((self.ip, self.port))
-    
+
+
     def __repr__(self) -> str:
         return f"Client<ip={self.ip}, port={self.port}>"
-    
+
+
     def __str__(self) -> str:
         return f"Client<{self.ip}, {self.port}>"
 
