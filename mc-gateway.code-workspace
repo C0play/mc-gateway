@@ -6,6 +6,6 @@
 	],
 	"settings": {
 		"editor.inlineSuggest.enabled": false,
-		"explorer.sortOrder": "default"
+		"explorer.sortOrder": "type"
 	}
 }

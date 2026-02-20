@@ -20,12 +20,10 @@ RUN mkdir -p /root/.ssh \
     && chmod 600 /root/.ssh/config
 
 COPY src ./src
-COPY allow_list.csv ./allow_list.csv
-COPY hosts.csv ./hosts.csv
 
 EXPOSE 25567 25566
 
-ENTRYPOINT ["python", "-m", "src.watcher.main"]
+ENTRYPOINT ["python", "-m", "src.gateway.main"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD ["python", "-m", "src.watcher.main", "--status"]
+    CMD ["python", "-m", "src.gateway.main", "--status"]

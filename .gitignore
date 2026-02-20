@@ -36,4 +36,7 @@ Desktop.ini
 
 # Other
 *.md
-config/
+ssh/*
+*.tar
+*.sh
+postgres_data

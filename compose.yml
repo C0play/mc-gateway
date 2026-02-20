@@ -1,21 +1,36 @@
 services:
-  mc-watcher:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: mc-watcher:dev
-    container_name: mc-watcher
+  mc-gateway:
+    image: mc-gateway:latest
+    container_name: mc-gateway
+    depends_on:
+      db:
+        condition: service_healthy
     network_mode: host
     env_file:
       - .env
     environment:
       - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+      - CTRL_PORT=25566
+      - SERVER_PORT=25567
     volumes:
       # SSH keys
-      - ./config/id_ecdsa:/root/.ssh/id_ecdsa:ro
-      - ./config/id_ecdsa.pub:/root/.ssh/id_ecdsa.pub:ro
-      # Player whitelist (disabled for testing)
-      # - ./allow_list.csv:/app/allow_list.csv
-      # Host machine list (disabled for testing)
-      # - ./hosts.csv:/app/hosts.csv
+      - ./ssh/id_ecdsa:/root/.ssh/id_ecdsa:ro
+      - ./ssh/id_ecdsa.pub:/root/.ssh/id_ecdsa.pub:ro
     restart: unless-stopped
+  db:
+    image: postgres:15
+    container_name: db-mc-gateway
+    network_mode: host
+    environment:
+      POSTGRES_DB: mcgateway
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "sh -c 'pg_isready -U admin -d mcgateway'"]
+      interval: 10s
+      timeout: 3s
+      retries: 3

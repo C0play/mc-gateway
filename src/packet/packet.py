@@ -2,15 +2,13 @@ from enum import IntEnum
 
 from ..gateway.client import State
 from ..gateway.client import Client
-from ..gateway.backend import Backend
 from . import mc_types as mct
-from ..logger.logger import logger
-
 
 
 class Null():
     class serverbound(IntEnum):
         handshake = 0x00
+
 
 class Status():
     class serverbound(IntEnum):
@@ -20,18 +18,24 @@ class Status():
         status_response = 0x00
         pong_response = 0x01
 
+
 class Login():
     class serverbound(IntEnum):
         login_start = 0x00
     class clientbound(IntEnum):
         disconnect_login = 0x00
 
+
+
 class Packet:
+
     def __init__(self, client: Client):
         self.client = client
         self.data = []
 
+
     def read(self) -> 'Packet':
+        """Parse a minecraft packet received from the client."""
         try:
             packet_length = mct.read_VarInt(self.client.socket)
             packet_proto = mct.read_VarInt(self.client.socket)
@@ -90,7 +94,10 @@ class Packet:
             self.data = []
             raise RuntimeError(f"failed to read packet: {e}")
 
+
     def respond(self, login_disc_msg: str | None = None, colour: str | None = None) -> None:
+        """Send a response to the client. If the incoming packet was a login_start, then a disconnect_login
+        will be sent with the provided message and colour (or default)."""
         data = None
         packet_type = self.data[1]
         if packet_type is Status.serverbound.status_request:
@@ -113,7 +120,9 @@ class Packet:
         
         self.client.socket.sendall(data)
     
-    def forward(self, backend: Backend):
+
+    def reencode(self) -> bytearray:
+        """Reencode the received packet data"""
         data = None
         packet_type = self.data[1]
         if packet_type is Null.serverbound.handshake:
@@ -129,18 +138,21 @@ class Packet:
         else:
             raise ValueError("this packet type can not be forwarded")
         
-        backend.socket.sendall(data)
+        return data
+
 
     @staticmethod
     def _encode_disconnect_login(disconnect_msg: str | None, colour: str | None) -> bytearray:
         msg = '{text: "Server is starting, please wait.", color: "green"}'
         if disconnect_msg:
-            msg = f"""{{text: "{disconnect_msg}", color: "{colour}"}}"""
+            msg_colour = colour if colour else "green"
+            msg = f"""{{text: "{disconnect_msg}", color: "{msg_colour}"}}"""
             
         packet_id = mct.write_VarInt(Login.clientbound.disconnect_login)
         packet_data = mct.write_String(msg)
         return Packet._assemble_packet(packet_id, packet_data)
     
+
     @staticmethod
     def _encode_status_response() -> bytearray:
         txt = "Press Join to check your server's status!"
@@ -163,10 +175,12 @@ class Packet:
         packet_data = mct.write_String(msg)
         return Packet._assemble_packet(packet_id, packet_data)
     
+
     def _encode_pong_response(self) -> bytearray:
         packet_id = mct.write_VarInt(Status.clientbound.pong_response)
         packet_data = mct.write_long(self.data[2])
         return Packet._assemble_packet(packet_id, packet_data)
+   
    
     def _encode_login_handshake(self) -> bytearray:
         packet_id = mct.write_VarInt(Null.serverbound.handshake)
@@ -177,11 +191,13 @@ class Packet:
         packet_data = proto_ver + addr + port + intent
         return Packet._assemble_packet(packet_id, packet_data)
 
+
     def _encode_login_start(self) -> bytearray:
         packet_id = mct.write_VarInt(Login.serverbound.login_start)
         name = mct.write_String(self.data[2])
         uuid = mct.write_uuid(self.data[3])
         return Packet._assemble_packet(packet_id, name + uuid)
+
 
     @staticmethod
     def _assemble_packet(packet_id: bytearray, packet_data: bytearray) -> bytearray:
