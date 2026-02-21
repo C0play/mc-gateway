@@ -11,10 +11,8 @@ class PostgresConfig():
 
 
 @dataclass(frozen=True)
-class PathConfig():
-    containers_file_path: str
-    whitelist_file_path: str
-    hosts_file_path: str
+class StorageConfig():
+    storage: PostgresConfig
 
 
 @dataclass(frozen=True)
@@ -30,10 +28,6 @@ class ServerConfig():
 class ShutdownConfig():
     container_idle_timeout: int
 
-
-@dataclass(frozen=True)
-class StorageConfig():
-    storage: PostgresConfig | PathConfig
 
 @dataclass(frozen=True)
 class Config():

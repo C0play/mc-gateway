@@ -1,4 +1,3 @@
-import json
 import socket
 import select
 import signal
@@ -7,11 +6,13 @@ from subprocess import CalledProcessError
 
 from ..utils.logger import logger
 from ..packet.packet import Packet, Null, Status, Login
-from .client import Client, State
 
 from ..config.config import Config
 from ..whitelist.manager import WhitelistManager
 from ..session.manager import SessionManager
+
+from .client import Client, State
+from .api import API, TCPAdater
 
 
 
@@ -30,6 +31,9 @@ class Server:
             self._client_count_lock = threading.Lock()
             self._client_count = 0
             
+            self.api = API(self)
+            self.cmd_handler = TCPAdater(self.api)
+
             signal.signal(signal.SIGTERM, self._signal_handler)
             signal.signal(signal.SIGINT, self._signal_handler)
 
@@ -86,7 +90,7 @@ class Server:
     def _handle_ctrl_socket(self):
         control_sock, _ = self._ctrl_socket.accept()
         try:
-            threading.Thread(target=self.handle_cmd, daemon=True, args=(control_sock,)).start()
+            threading.Thread(target=self.cmd_handler.handle, daemon=True, args=(control_sock,)).start()
         except Exception as e:
             logger.error(f"control socket: {e}")
 
@@ -94,10 +98,11 @@ class Server:
     def _handle_mc_socket(self):
         client_sock, addr = self._server_socket.accept()
         client = Client(client_sock, addr)
-        try:
-            with self._client_count_lock:
-                logger.info(f"new {client}, total: {self._client_count}")
 
+        with self._client_count_lock:
+            logger.info(f"new {client}, total: {self._client_count}")
+
+        try:
             threading.Thread(target=self.handle_client, daemon=True, args=(client,)).start()
         except Exception as e:
             logger.error(f"client handling: {e}")
@@ -221,127 +226,6 @@ class Server:
             raise RuntimeError(f"{client} login handshake: {e}")
 
 
-    def handle_cmd(self, sock):
-        response = {"status": "ERROR", "message": "unknown error"}
-        cmd: list[str] = []
-        try:
-            data = sock.recv(1024).decode().strip()
-            if not data:
-                return
-        
-            cmd = data.split()
-
-            if cmd[0] != "status":
-                logger.info(f"handle_cmd received: {cmd}")
-            
-            if cmd[0] == "stop":
-                self._shutdown = True
-                response = Server._make_cmd_response("ERROR", "shutdown initiated")
-                
-            elif cmd[0] == "status":
-                with self._client_count_lock:
-                    response = Server._make_cmd_response("ERROR", self._client_count)
-                        
-            elif cmd[0] == "add-player":
-                if len(cmd[1:]) != 2:
-                    response = Server._make_cmd_response("ERROR", "usage: add-player <name> <server_subdomain>")
-                else:
-                    username, server_subdomain = cmd[1], cmd[2]
-                    try:
-                        self._whitelist.storage.create(username, server_subdomain)
-                    except Exception as e:
-                        response = Server._make_cmd_response("ERROR", f"player addition failed: {e}")
-                    else:
-                        response = Server._make_cmd_response("ERROR", f"player {username} added to {server_subdomain}")
-                        
-            elif cmd[0] == "remove-player":
-                if len(cmd[1:]) != 2:
-                    response = Server._make_cmd_response("ERROR", "usage: remove-player <name> <server_subdomain>")
-                else:
-                    username, server_subdomain = cmd[1], cmd[2]
-                    try:
-                        self._whitelist.storage.delete(username, server_subdomain)
-                    except Exception as e:
-                        response = Server._make_cmd_response("ERROR", f"player removal failed: {e}")
-                    else:
-                        response = Server._make_cmd_response("ERROR", f"player {username} removed from {server_subdomain}")
-                        
-            elif cmd[0] == "add-container":
-                if len(cmd[1:]) != 2:
-                    response = Server._make_cmd_response("ERROR", "usage: add-container <ip> <port>")
-                else:
-                    ip, port = cmd[1], cmd[2]
-                    try:
-                        server_subdomain = self._sessions.containers.storage.create(ip, int(port))
-                    except Exception as e:
-                        response = Server._make_cmd_response("ERROR", f"container addition failed: {e}")
-                    else:
-                        response = Server._make_cmd_response("ERROR", f"container {ip}:{port} received {server_subdomain}")
-                        
-            elif cmd[0] == "remove-container":
-                if len(cmd[1:]) != 1:
-                    response = Server._make_cmd_response("ERROR", "usage: remove-container <server_subdomain>")
-                else:
-                    server_subdomain = cmd[1]
-                    try:
-                        self._sessions.containers.storage.delete(server_subdomain)
-                    except Exception as e:
-                        response = Server._make_cmd_response("ERROR", f"container removal failed: {e}")
-                    else:
-                        response = Server._make_cmd_response("ERROR", f"container {server_subdomain} removed")
-                        
-            elif cmd[0] == "add-host":
-                if len(cmd[1:]) != 4:
-                    response = Server._make_cmd_response("ERROR", "usage: add-host <ip> <mac> <user> <path>")
-                else:
-                    ip, mac, user, path = cmd[1], cmd[2], cmd[3], cmd[4]
-                    try:
-                        self._sessions.containers.hostManager.storage.add(ip, mac, user, path)
-                    except Exception as e:
-                        response = Server._make_cmd_response("ERROR", f"host addition failed: {e}")
-                    else:
-                        response = Server._make_cmd_response("ERROR", f"added {ip} to hosts")
-
-            elif cmd[0] == "remove-host":
-                if len(cmd[1:]) != 1:
-                    response = Server._make_cmd_response("ERROR", "usage: remove-host <ip>")
-                else:
-                    ip = cmd[1]
-                    try:
-                        self._sessions.containers.hostManager.storage.remove(ip)
-                    except Exception as e:
-                        response = Server._make_cmd_response("OK", f"host removal failed: {e}")
-                    else:
-                        response = Server._make_cmd_response("OK", f"{ip} removed")
-                        
-            elif cmd[0] == "list":
-                response = {
-                    "status": "OK", 
-                    "players": self._whitelist.storage.dict(), 
-                    "containers": self._sessions.containers.storage.dict(),
-                    "hosts": self._sessions.containers.hostManager.storage.dict()
-                }
-
-            else:
-                response = Server._make_cmd_response("ERROR", f"unknown command {cmd[0]}")
-
-        except Exception as e:
-            response = Server._make_cmd_response("ERROR", str(e))
-        finally:
-            try:
-                if cmd[0] != "--status":
-                    if response.get("status") == "OK":
-                        logger.info(f"handle_cmd OK: {cmd}")
-                    else:
-                        logger.error(f"handle_cmd ERROR: {cmd} -> {response.get('message')}")
-                
-                sock.sendall(json.dumps(response).encode())
-            except Exception:
-                pass
-            finally:
-                sock.close()
-    
-
     def _signal_handler(self, signum, _):
         logger.info(f"received: {signum}. Closing...")
         self._shutdown = True
@@ -350,8 +234,3 @@ class Server:
                 s.sendall(b"stop")
         except Exception:
             pass
-
-
-    @staticmethod
-    def _make_cmd_response(status: str, message) -> dict[str, str]:
-        return {"status": status, "message": str(message)}

@@ -1,79 +1,61 @@
 import argparse
 import json
 import socket
-import sys
 
 from ..utils.logger import logger
 
 
-def send_request(port: int, command: str, args: list[str] | None = None):
+def _handle_error(full_cmd: dict, error_message: str):
+    """Helper for printing error and logging it."""
+    
+    print(f"ERROR: {error_message}")
+    logger.error(f"CLI ERROR: {full_cmd} -> {error_message}")
+    return 1
+
+
+def _print_response(data):
+    """Universal response printer - just pretty prints JSON."""
+
+    if isinstance(data, str):
+        print(f"{data}")
+    else:
+        print(json.dumps(data, indent=3))
+
+
+
+def send_request(port: int, command: str, kwargs: dict[str, str] = {}):
     """Encapsulates sending a command to the server socket and handling the response."""
-    full_cmd = f"{command} {' '.join(args) if args else ''}".strip()
+
+    full_cmd = {
+        "cmd_name": command,
+        "kwargs": kwargs
+    }
     
     try:
-        with socket.create_connection(("127.0.0.1", port), timeout=3.0) as s:
+        with socket.create_connection(("127.0.0.1", port), timeout=3.0) as sock:
             logger.info(f"CLI send: {full_cmd}")
-            s.sendall(full_cmd.encode())
+            sock.sendall(json.dumps(full_cmd).encode())
 
-            response_data = s.recv(4096).decode()
+            response_data = sock.recv(4096).decode()
             if not response_data:
-                err = "ERROR: Empty response from server"
-                print(err)
-                logger.error(f"CLI ERROR: {full_cmd} -> {err}")
-                return 1
-
+                return _handle_error(full_cmd, "Empty response from server")
             try:
                 response = json.loads(response_data)
             except json.JSONDecodeError:
-                err = f"ERROR: Invalid JSON response: {response_data}"
-                print(err)
-                logger.error(f"CLI ERROR: {full_cmd} -> {err}")
-                return 1
+                return _handle_error(full_cmd, f"Invalid JSON response: {response_data}")
 
-            if response.get("status") == "OK":
-                if "message" in response:
-                    print(f"SUCCESS: {response['message']}")
-                if "clients" in response:
-                    print(f"Clients: {response['clients']}")
-                if "players" in response:
-                    print("Whitelist:")
-                    players = response.get("players", {})
-                    if isinstance(players, dict):
-                         for username, info in players.items():
-                            subs = info.get('subdomains') if isinstance(info, dict) else None
-                            if subs:
-                                print(f"  {username}: {', '.join(subs)}")
-                if "containers" in response:
-                    print("Containers:")
-                    containers = response.get("containers", {})
-                    if isinstance(containers, dict):
-                         for subdomain, info in containers.items():
-                              print(f"  {subdomain}: {info.get('ip')}:{info.get('port')}")
-                if "hosts" in response:
-                    print("Hosts:")
-                    hosts = response.get("hosts", {})
-                    if isinstance(hosts, dict):
-                        for ip, info in hosts.items():
-                            print(f"  {ip}: {info.get('mac')}, {info.get('user')}, {info.get('path')}")
-
+            if response.get("code") == "OK":
+                _print_response(response.get("data"))
                 logger.info(f"CLI OK: {full_cmd}")
                 return 0
             else:
-                err = f"ERROR: {response.get('message', 'Unknown error')}"
-                print(err)
-                logger.error(f"CLI ERROR: {full_cmd} -> {err}")
-                return 1
+                return _handle_error(full_cmd, response.get('data', 'Unknown error'))
 
     except (ConnectionRefusedError, TimeoutError, OSError):
-        err = "ERROR: server is not running or not accessible"
-        print(err)
-        logger.error(f"CLI ERROR: {full_cmd} -> {err}")
-        return 1
+        return _handle_error(full_cmd, "server is not running or not accessible")
     except Exception as e:
-        err = f"ERROR: {e}"
-        print(err)
-        logger.error(f"CLI ERROR: {full_cmd} -> {e}")
-        return 1
+        return _handle_error(full_cmd, str(e))
+
 
 
 def send_cmd(argv: list[str], port: int) -> int:
@@ -138,21 +120,38 @@ def send_cmd(argv: list[str], port: int) -> int:
 
     # Map argparse result to the command string expected by the server socket
     
-    socket_cmd = f"{args.command}"
-    socket_args = []
+    socket_args = {}
 
     if args.command == "add-player":
-        socket_args = [args.name, args.subdomain]
+        socket_args = {
+            "username": args.name,
+            "subdomain": args.subdomain
+        }
     elif args.command == "remove-player":
-        socket_args = [args.name, args.subdomain]
+        socket_args = {
+            "username": args.name,
+            "subdomain": args.subdomain
+        }
     elif args.command == "add-container":
-        socket_args = [args.ip, str(args.port)]
+        socket_args = {
+            "ip": args.ip,
+            "port": str(args.port)
+        }
     elif args.command == "remove-container":
-        socket_args = [args.subdomain]
+        socket_args = {
+            "subdomain": args.subdomain
+        }
     elif args.command == "add-host":
-        socket_args = [args.ip, args.mac, args.user, args.path]
+        socket_args = {
+            "ip": args.ip,
+            "mac": args.mac,
+            "user": args.user,
+            "path": args.path
+        }
     elif args.command == "remove-host":
-        socket_args = [args.ip]
+        socket_args = {
+            "ip": args.ip
+        }
     elif args.command == "stop":
         pass
     elif args.command == "status":
@@ -160,4 +159,4 @@ def send_cmd(argv: list[str], port: int) -> int:
     elif args.command == "list":
         pass
 
-    return send_request(port, socket_cmd, socket_args)
+    return send_request(port, args.command, socket_args)

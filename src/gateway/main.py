@@ -6,13 +6,13 @@ from ..utils.logger import logger
 from ..utils.keygen import KeyGenerator
 
 from ..whitelist.manager import WhitelistManager
-from ..whitelist.repository import SQLWhitelistRepository
+from ..whitelist.repository import WhitelistRepository
 
 from ..container.manager import ContainerManager
 from ..container.repository import SQLContainerRepository
 
 from ..host.manager import SSHHostManager
-from ..host.repository import SQLHostStorage
+from ..host.repository import HostRepository
 
 from ..session.manager import SessionManager
 
@@ -30,7 +30,7 @@ def main():
 
         else:
             hosts = SSHHostManager(
-                SQLHostStorage()
+                HostRepository()
             )
 
             containers = ContainerManager(
@@ -39,7 +39,7 @@ def main():
             )
             
             whitelist = WhitelistManager(
-                SQLWhitelistRepository()
+                WhitelistRepository()
             )
 
             sessions = SessionManager(

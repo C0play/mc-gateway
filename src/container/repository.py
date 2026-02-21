@@ -1,11 +1,8 @@
 from abc import ABC, abstractmethod
-import threading
 
 
-from ..utils.csv_storage import CSVParams, CSVStorage
-from ..utils.sql_models import Container
+from ..utils.models import Container
 from ..utils.keygen import KeyGenerator
-from ..utils.logger import logger
 
 
 class BaseContainerRepository(ABC):
@@ -31,87 +28,10 @@ class BaseContainerRepository(ABC):
         """Remove the container with specified subdomain."""
         ...
     
-    def dict(self) -> dict[str, dict[str, str | int]]:
+    def dict(self) -> list[dict[str, str]]:
         """Return stored containers in JSON friendly format."""
         ...
 
-
-
-class CSVContainerRepository(BaseContainerRepository):
-
-    def __init__(self, params: CSVParams, keyGenerator: KeyGenerator) -> None:
-        super().__init__(keyGenerator)
-        self.params = params
-        self.storage = CSVStorage(params)
-
-        self.lock = threading.Lock()
-        self.cache: dict[str, tuple[str, int]] = {}
-        
-        try:
-            rows = self.storage.read_rows()
-        except:
-            logger.exception(f"failed to load rows when caching {self.params.path}")
-        else:
-            with self.lock:
-                for row in rows:
-                    self.cache.setdefault(row["subdomain"], (row["ip"], int(row["port"])))
-
-
-    def create(self, ip: str, port: int) -> str:
-        with self.lock:
-            for existing_ip, existing_port in self.cache.values():
-                if existing_ip == ip and existing_port == port:
-                    raise KeyError(f"container with ip={ip}, port={port} already exists")
-
-        key =  self.key.gen()
-
-        try:
-            self.storage.insert({
-                "subdomain": key,
-                "ip": ip,
-                "port": port
-            })
-        except:
-            logger.exception(f"failed to add {ip}:{port} to container storage")
-            return ""
-        else:
-            with self.lock:
-                self.cache.setdefault(key, (ip, port))
-            return key
-
-
-    def read(self, subdomain: str) -> tuple[str, int]:
-        with self.lock:
-            if subdomain not in self.cache:
-                raise KeyError(f"container {subdomain} does not exist")
-            return self.cache[subdomain]
-
-
-    def delete(self, subdomain: str) -> None:
-        with self.lock:
-            if subdomain not in self.cache:
-                raise KeyError(f"container {subdomain} does not exist")
-        
-        try:
-            with self.lock:
-                ip, port = self.cache[subdomain]
-            self.storage.delete({
-                "subdomain": subdomain,
-                "ip": ip,
-                "port": int(port)
-            })
-        except Exception:
-            logger.error(f"failed to remove {subdomain}, file and dictionary were restored")
-        else:
-            with self.lock:
-                del self.cache[subdomain]
-
-
-    def dict(self) -> dict[str, dict[str, str | int]]:
-        with self.lock:
-            temp = self.cache.items()
-        return {subd: {"ip": v[0], "port": v[1]} for subd, v in temp}
-    
 
 
 class SQLContainerRepository(BaseContainerRepository):
@@ -159,8 +79,13 @@ class SQLContainerRepository(BaseContainerRepository):
             raise KeyError(f"container {subdomain} does not exist")
         
 
-    def dict(self) -> dict[str, dict[str, str | int]]:
+    def dict(self) -> list[dict[str, str]]:
         """Return stored containers in JSON friendly format."""
-        query = Container.select()
 
-        return {c.subdomain: {"ip": c.host_id, "port": c.port} for c in query}
+        query = Container.select()
+        return [{
+                "subdomain": c.subdomain, 
+                "ip": c.host_id,
+                "port": str(c.port)
+            } for c in query
+        ]

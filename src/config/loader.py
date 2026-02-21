@@ -1,6 +1,14 @@
 import os
-from ..utils.sql_models import db_init
-from .config import PathConfig, ServerConfig, ShutdownConfig, Config, ConfigException, PostgresConfig, StorageConfig
+from ..utils.models import db_init
+from .config import  (
+    ServerConfig,
+    ShutdownConfig,
+    Config,
+    ConfigException,
+    PostgresConfig,
+    StorageConfig
+)
+
 
 
 def _load_storage() -> StorageConfig:
@@ -20,17 +28,6 @@ def _load_storage() -> StorageConfig:
         )
         db_init(postgres)
         return StorageConfig(postgres)
-
-
-    containers_file_path =  os.getenv("CONTAINERS_PATH")
-    whitelist_file_path = os.getenv("WHITELIST_PATH")
-    hosts_file_path =  os.getenv("HOSTS_PATH")
-    if containers_file_path and whitelist_file_path and hosts_file_path:
-        return StorageConfig(PathConfig(
-            containers_file_path,
-            whitelist_file_path,
-            hosts_file_path
-        ))
 
     raise RuntimeError(f"failed to load storage configuration")
 

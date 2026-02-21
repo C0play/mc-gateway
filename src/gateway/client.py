@@ -4,11 +4,13 @@ from enum import IntEnum
 from ..utils.logger import logger
 
 
+
 class State(IntEnum):
     Null = 0
     Status = 1
     Login = 2
     Transfer = 3
+
 
 
 class Client():

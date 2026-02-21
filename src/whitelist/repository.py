@@ -1,11 +1,8 @@
 from abc import ABC, abstractmethod
-import threading
 
-from ..utils.csv_storage import CSVParams, CSVStorage
-from ..utils.logger import logger
-
-from ..utils.sql_models import Whitelist, Container
+from ..utils.models import Whitelist, Container
 import peewee as pewe
+from peewee import fn
 
 
 
@@ -34,93 +31,13 @@ class BaseWhitelistRepository(ABC):
         """Remove the row with specified values"""
         ...
     
-    def dict(self) -> dict[str, dict[str, list[str]]]:
+    def dict(self) -> list[dict[str, list[str]]]:
         """Returns the contents of the file in JSON friendly format."""
         ...
 
 
 
-class CSVWhitelistRepository(BaseWhitelistRepository):
-
-    def __init__(self, storageParams: CSVParams) -> None:
-        self.storage = CSVStorage(storageParams)
-
-        self.lock = threading.Lock()
-        self.cache: dict[str, list[str]] = {} # username -> server_subdomains
-        
-        try:
-            rows = self.storage.read_rows()
-        except:
-            logger.exception(f"failed to read rows when caching {storageParams.path}")
-        else:
-            with self.lock:
-                for row in rows:
-                    if row["username"] not in self.cache:
-                        self.cache[row["username"]] = [row["subdomain"]]
-                    else:
-                        self.cache[row["username"]].append(row["subdomain"])
-
-
-    def create(self, username: str, subdomain: str) -> None:
-        with self.lock:
-            if username in self.cache and subdomain in self.cache[username]:
-                raise KeyError(f"player {username} is already whitelisted on {subdomain}")
-            
-        try:
-            self.storage.insert({"username": username, "subdomain": subdomain})
-        except:
-            logger.exception(f"failed to remove {username}:{subdomain} from storage")
-        else:
-            with self.lock:
-                if username in self.cache:
-                    self.cache[username].append(subdomain)
-                else:
-                    self.cache[username] = [subdomain]
-
-        
-    def read(self, username: str) -> list[str]:
-        with self.lock:
-            if username not in self.cache:
-                raise KeyError(f"player {username} does not exist")
-            
-            return self.cache[username]
-
-
-    def exists(self, fields: dict[str, str]) -> bool:
-        try:
-            res = self.storage.select(fields)
-        except:
-            logger.exception(f"failed to search for {fields} in storage")
-            raise
-        else:
-            return True if res else False
-
-
-    def delete(self, username: str, subdomain: str) -> None:
-        with self.lock:
-            if not (username in self.cache and subdomain in self.cache[username]):
-                raise KeyError(f"player {username} does not exist or is not whitelisted on {subdomain}")
-        
-        try:
-            self.storage.delete({"username": username, "subdomain": subdomain})
-        except Exception as e:
-            logger.error(f"failed to remove {username}:{subdomain} from storage: {e}")
-        else:
-            with self.lock:
-                self.cache[username].remove(subdomain)
-                if not self.cache[username]:
-                    del self.cache[username]
-
-
-    def dict(self) -> dict[str, dict[str, list[str]]]:
-        with self.lock:
-            temp = self.cache.keys()
-            
-        return {username: {"subdomains": self.cache[username]} for username in temp}
-    
-
-
-class SQLWhitelistRepository(BaseWhitelistRepository):
+class WhitelistRepository(BaseWhitelistRepository):
 
 
     def create(self, username: str, subdomain: str) -> None:
@@ -168,10 +85,9 @@ class SQLWhitelistRepository(BaseWhitelistRepository):
 
 
     def delete(self, username: str, subdomain: str) -> None:
-        query = (Whitelist.delete()
-                    .where((Whitelist.username == username) 
-                            & (Whitelist.container == subdomain)
-                    )
+        query = (Whitelist
+                    .delete()
+                    .where((Whitelist.username == username) & (Whitelist.container == subdomain))
                 )
         rows_deleted = query.execute()
         
@@ -179,17 +95,17 @@ class SQLWhitelistRepository(BaseWhitelistRepository):
             raise KeyError(f"player {username} does not exist or is not whitelisted on {subdomain}")
 
 
-    def dict(self) -> dict[str, dict[str, list[str]]]:
-        """Returns the contents of the file in JSON friendly format."""
-        items = Whitelist.select()
+    def dict(self) -> list[dict[str, list[str]]]:
+        """Returns the contents of the database in JSON friendly format."""
+        query = (Whitelist
+                .select(
+                    Whitelist.username,
+                    fn.array_agg(Whitelist.container).alias('subdomains')
+                )
+                .group_by(Whitelist.username))
         
-        result = {}
-        for item in items:
-            user = item.username
-            sub = item.container_id
-            
-            if user not in result:
-                result[user] = {"subdomains": []}
-            result[user]["subdomains"].append(sub)
-            
-        return result
+        return [{
+            "username": row.username,
+            "subdomains": list(row.subdomains)
+            } for row in query
+        ]
