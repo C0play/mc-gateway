@@ -65,7 +65,7 @@ class BaseContainerRepository(ABC):
         """
         ...
     
-    def dict(self) -> list[dict[str, str]]:
+    def list(self) -> list[dict[str, str]]:
         """
         Returns all stored containers in JSON friendly format.
 
@@ -123,7 +123,7 @@ class SQLContainerRepository(BaseContainerRepository):
             raise KeyError(f"container {subdomain} does not exist")
         
 
-    def dict(self) -> list[dict[str, str]]:
+    def list(self) -> list[dict[str, str]]:
 
         query = Container.select()
         return [{

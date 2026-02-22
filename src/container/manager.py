@@ -53,12 +53,12 @@ class BaseContainerManager(ABC):
         ...
 
     @abstractmethod
-    def dict(self) -> dict[str, dict[str, str]]:
+    def list(self) -> list[dict[str, str]]:
         """
         Returns all active containers in a JSON-friendly format.
 
         Returns:
-             dict[str, dict[str, str]]: Mapping of subdomains to container details.
+             list[dict[str, str]]: Mapping of subdomains to container details.
         """
         ...
 
@@ -106,9 +106,9 @@ class ContainerManager(BaseContainerManager):
             self.active_containers[subdomain].stop()
             del self.active_containers[subdomain]
             
-            inactive_hosts = self.hostManager.dict()
+            inactive_hosts: set[str] = set([h["ip"] for h in self.hostManager.list()])
             for container in self.active_containers.values():
-                del inactive_hosts[container.host.ip]
+                inactive_hosts.discard(container.host.ip)
             
             for host_ip in inactive_hosts:
                 self.hostManager.unload(host_ip)
@@ -121,8 +121,8 @@ class ContainerManager(BaseContainerManager):
         self.storage.delete(subdomain)
     
     
-    def dict(self) -> dict[str, dict[str, str]]:
+    def list(self) -> list[dict[str, str]]:
 
         with self.lock:
-            temp = self.active_containers.items()
-        return {subdomain: container.dict() for subdomain, container in temp}
+            temp = self.active_containers.values()
+        return [container.dict() for container in temp]

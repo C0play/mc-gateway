@@ -53,12 +53,12 @@ class BaseHostManager(ABC):
         """
         ...
 
-    def dict(self) -> dict[str, dict[str, str]]:
+    def list(self) -> list[dict[str, str]]:
         """
         Returns a dictionary representation of all active hosts.
 
         Returns:
-            dict[str, dict[str, str]]: A mapping of IP addresses to host details.
+            list[dict[str, str]]: A mapping of IP addresses to host details.
         """
         ...
     
@@ -108,7 +108,7 @@ class SSHHostManager(BaseHostManager):
             
 
 
-    def dict(self) -> dict[str, dict[str, str]]:
+    def list(self) -> list[dict[str, str]]:
         with self.lock:
             temp = self.active_hosts.values()
-        return {host.ip: host.dict() for host in temp}
+        return [host.dict() for host in temp]

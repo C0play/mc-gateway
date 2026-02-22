@@ -89,20 +89,6 @@ class API():
         return API._assemble_res("OK", "shutdown initiated")
     
 
-    def _status(self) -> APIResponse:
-        with self.server._client_count_lock:
-            return API._assemble_res(
-                "OK",
-                {
-                    "clients": str(self.server._client_count),
-                    "sessions": self.server._sessions.dict(),
-                    "containers": self.server._sessions.containers.dict(),
-                    "hosts": self.server._sessions.containers.hostManager.dict(),
-                }
-            )
-        
-
-
     def _add_player(self, username: str, subdomain: str) -> APIResponse:
         try:
             self.server._whitelist.storage.create(username, subdomain)
@@ -179,11 +165,24 @@ class API():
         return API._assemble_res(
             "OK", 
             {
-                "players": self.server._whitelist.storage.dict(), 
-                "containers": self.server._sessions.containers.storage.dict(),
-                "hosts": self.server._sessions.containers.hostManager.storage.dict()
+                "players": self.server._whitelist.storage.list(), 
+                "containers": self.server._sessions.containers.storage.list(),
+                "hosts": self.server._sessions.containers.hostManager.storage.list()
             }
         )
+    
+
+    def _status(self) -> APIResponse:
+        with self.server._client_count_lock:
+            return API._assemble_res(
+                "OK",
+                {
+                    "clients": str(self.server._client_count),
+                    "sessions": self.server._sessions.list(),
+                    "containers": self.server._sessions.containers.list(),
+                    "hosts": self.server._sessions.containers.hostManager.list(),
+                }
+            )
 
 
     @staticmethod

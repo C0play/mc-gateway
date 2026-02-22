@@ -52,4 +52,4 @@ class WhitelistManager(BaseWhitelistManager):
 
 
     def dict(self) -> list[dict[str, list[str]]]:
-        return self.storage.dict()
+        return self.storage.list()

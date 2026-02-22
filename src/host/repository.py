@@ -52,7 +52,7 @@ class BaseHostRepository(ABC):
         """
         ...
     
-    def dict(self) -> list[dict[str, str]]:
+    def list(self) -> list[dict[str, str]]:
         """
         Returns all stored hosts in a JSON-friendly format.
 
@@ -93,7 +93,7 @@ class HostRepository(BaseHostRepository):
              raise KeyError(f"host {ip} does not exist")
     
 
-    def dict(self) -> list[dict[str, str]]:
+    def list(self) -> list[dict[str, str]]:
         hosts = Host.select()
         return [{
                 "ip": h.ip,

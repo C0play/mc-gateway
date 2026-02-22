@@ -67,7 +67,7 @@ class BaseWhitelistRepository(ABC):
         """
         ...
     
-    def dict(self) -> list[dict[str, list[str]]]:
+    def list(self) -> list[dict[str, list[str]]]:
         """
         Returns the contents of the whitelist in a JSON-friendly format.
 
@@ -139,7 +139,7 @@ class WhitelistRepository(BaseWhitelistRepository):
             raise KeyError(f"player {username} does not exist or is not whitelisted on {subdomain}")
 
 
-    def dict(self) -> list[dict[str, list[str]]]:
+    def list(self) -> list[dict[str, list[str]]]:
         query = (Whitelist
                 .select(
                     Whitelist.username,

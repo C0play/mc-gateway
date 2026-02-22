@@ -178,12 +178,8 @@ class SessionManager(BaseSessionManager):
                     logger.exception(f"failed to stop {container}")
                     
 
-    def dict(self) -> list[dict[str, str]]:
+    def list(self) -> list[dict[str, str]]:
 
         with self.sessions_lock:
-            temp = self.sessions.items()
-        return [{
-                "client": client.__str__(),
-                "container": session.container.__str__(),
-            } for client, session in temp
-        ]
+            temp = self.sessions.values()
+        return [session.dict() for session in temp]

@@ -207,3 +207,10 @@ class Session():
         self._server_disconnect_signal = True
         self._server_disconnect_reason = reason
 
+
+    def dict(self) -> dict[str, str]:
+        return {
+            "client": str(self.client),
+            "container": str(self.container),
+        }
+
