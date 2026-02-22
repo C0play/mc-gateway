@@ -1,11 +1,11 @@
 import argparse
 import json
 import socket
+import sys
 
-from ..utils.logger import logger
 
 
-def _handle_error(full_cmd: dict, error_message: str):
+def _handle_error(error_message: str):
     """
     Helper for printing error and logging it.
 
@@ -18,7 +18,6 @@ def _handle_error(full_cmd: dict, error_message: str):
     """
     
     print(f"ERROR: {error_message}")
-    logger.error(f"CLI ERROR: {full_cmd} -> {error_message}")
     return 1
 
 
@@ -37,7 +36,7 @@ def _print_response(data):
 
 
 
-def send_request(port: int, command: str, kwargs: dict[str, str] = {}):
+def send_request(port: int, command: str, kwargs: dict[str, str] = {}, ip: str = "127.0.0.1"):
     """
     Encapsulates sending a command to the server socket and handling the response.
 
@@ -45,6 +44,7 @@ def send_request(port: int, command: str, kwargs: dict[str, str] = {}):
         port: The port to connect to.
         command: The command name.
         kwargs: Dictionary of arguments for the command.
+        ip: The IP to connect to.
     
     Returns:
         int: 0 on success, 1 on failure.
@@ -56,34 +56,39 @@ def send_request(port: int, command: str, kwargs: dict[str, str] = {}):
     }
     
     try:
-        with socket.create_connection(("127.0.0.1", port), timeout=3.0) as sock:
-            logger.info(f"CLI send: {full_cmd}")
+        with socket.create_connection((ip, port), timeout=3.0) as sock:
+            print(f"SEND: {full_cmd}")
             sock.sendall(json.dumps(full_cmd).encode())
 
             response_data = sock.recv(4096).decode()
             if not response_data:
-                return _handle_error(full_cmd, "Empty response from server")
+                return _handle_error("Empty response from server")
             try:
                 response = json.loads(response_data)
             except json.JSONDecodeError:
-                return _handle_error(full_cmd, f"Invalid JSON response: {response_data}")
+                return _handle_error(f"Invalid JSON response: {response_data}")
 
             if response.get("code") == "OK":
                 _print_response(response.get("data"))
-                logger.info(f"CLI OK: {full_cmd}")
+                print(f"OK: {full_cmd}")
                 return 0
             else:
-                return _handle_error(full_cmd, response.get('data', 'Unknown error'))
+                return _handle_error(response.get('data', 'Unknown error'))
 
     except (ConnectionRefusedError, TimeoutError, OSError):
-        return _handle_error(full_cmd, "server is not running or not accessible")
+        return _handle_error("server is not running or not accessible")
     except Exception as e:
-        return _handle_error(full_cmd, str(e))
+        return _handle_error(str(e))
 
 
 
-def send_cmd(argv: list[str], port: int) -> int:
+def send_cmd(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="MC Gateway CLI")
+    
+    # Global arguments
+    parser.add_argument("--ip", dest="ip", default="127.0.0.1", help="Gateway IP address (default: 127.0.0.1)")
+    parser.add_argument("--port", dest="port", type=int, default=25566, help="Gateway port (default: 25566)")
+
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
 
     # stop
@@ -146,21 +151,7 @@ def send_cmd(argv: list[str], port: int) -> int:
     parser_kickall_host.add_argument("ip", help="Host IP address")
 
     # Parse arguments skipping argv[0] (script name)
-    try:
-        
-        # Clean up input args to match subparser names (remove leading -- if present for command)
-        clean_args = []
-        if len(argv) > 1:
-            cmd = argv[1].lstrip('-')
-            clean_args = [cmd] + argv[2:]
-        else:
-             # This will trigger print_help() because command is required
-             clean_args = []
-
-        args = parser.parse_args(clean_args)
-    except SystemExit:
-        # Argparse calls sys.exit() on error or --help, we want to return from function instead
-        return 1
+    args = parser.parse_args(argv[1:])
 
     # Map argparse result to the command string expected by the server socket
     
@@ -218,4 +209,8 @@ def send_cmd(argv: list[str], port: int) -> int:
                 "ip": args.ip
             }
     
-    return send_request(port, command_name, socket_args)
+    return send_request(args.port, command_name, socket_args, args.ip)
+
+
+if __name__ == '__main__':
+    send_cmd(sys.argv)

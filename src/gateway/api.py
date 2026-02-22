@@ -164,7 +164,6 @@ class API():
             if subdomain and ip:
                 raise ValueError("specify only a single argument")
             
-            logger.debug(f"Kicking all from {ip}{subdomain}")
             if subdomain:
                 self.server._sessions.interrupt("You were kicked", subdomain=subdomain)
             elif ip:

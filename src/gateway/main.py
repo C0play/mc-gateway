@@ -1,5 +1,3 @@
-import sys
-
 from ..config.loader import load_config
 
 from ..utils.logger import logger
@@ -17,37 +15,31 @@ from ..host.repository import HostRepository
 from ..session.manager import SessionManager
 
 from .server import Server
-from .cli import send_cmd
 
 
 
 def main():
     try:
         cfg = load_config()
+        hosts = SSHHostManager(
+            HostRepository()
+        )
 
-        if len(sys.argv) > 1:
-            return send_cmd(sys.argv, cfg.server.control_port)
+        containers = ContainerManager(
+            SQLContainerRepository(KeyGenerator()),
+            hosts
+        )
+        
+        whitelist = WhitelistManager(
+            WhitelistRepository()
+        )
 
-        else:
-            hosts = SSHHostManager(
-                HostRepository()
-            )
-
-            containers = ContainerManager(
-                SQLContainerRepository(KeyGenerator()),
-                hosts
-            )
-            
-            whitelist = WhitelistManager(
-                WhitelistRepository()
-            )
-
-            sessions = SessionManager(
-                containers,
-                cfg.shutdown
-            )
-            
-            Server(cfg, whitelist, sessions).start()
+        sessions = SessionManager(
+            containers,
+            cfg.shutdown
+        )
+        
+        Server(cfg, whitelist, sessions).start()
 
     except Exception as e:
         logger.critical("uncaught exception", exc_info=True)
