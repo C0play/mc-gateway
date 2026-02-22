@@ -161,15 +161,19 @@ class API():
             return API._assemble_res("OK", f"all players from {subdomain}{ip} were kicked")
 
 
-    def _list(self) -> APIResponse:
-        return API._assemble_res(
-            "OK", 
-            {
-                "players": self.server._whitelist.storage.list(), 
-                "containers": self.server._sessions.containers.storage.list(),
-                "hosts": self.server._sessions.containers.hostManager.storage.list()
-            }
-        )
+    def _list(self, resource: str) -> APIResponse:
+        lst = None
+        match resource:
+            case "players":
+                lst = self.server._whitelist.storage.list()
+            case "containers":
+                lst = self.server._sessions.containers.storage.list()
+            case "hosts":
+                lst = self.server._sessions.containers.hostManager.storage.list()
+            case _:
+                lst = []
+
+        return API._assemble_res("OK", lst)
     
 
     def _status(self) -> APIResponse:

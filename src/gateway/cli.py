@@ -36,7 +36,7 @@ def _print_response(data):
 
 
 
-def send_request(port: int, command: str, kwargs: dict[str, str] = {}, ip: str = "127.0.0.1"):
+def send_request(ip: str, port: int, command: str, kwargs: dict[str, str] = {}):
     """
     Encapsulates sending a command to the server socket and handling the response.
 
@@ -63,6 +63,7 @@ def send_request(port: int, command: str, kwargs: dict[str, str] = {}, ip: str =
             response_data = sock.recv(4096).decode()
             if not response_data:
                 return _handle_error("Empty response from server")
+            
             try:
                 response = json.loads(response_data)
             except json.JSONDecodeError:
@@ -83,22 +84,37 @@ def send_request(port: int, command: str, kwargs: dict[str, str] = {}, ip: str =
 
 
 def send_cmd(argv: list[str]) -> int:
+    
     parser = argparse.ArgumentParser(description="MC Gateway CLI")
     
     # Global arguments
     parser.add_argument("--ip", dest="ip", default="127.0.0.1", help="Gateway IP address (default: 127.0.0.1)")
-    parser.add_argument("--port", dest="port", type=int, default=25566, help="Gateway port (default: 25566)")
+    parser.add_argument("--port", dest="port", type=int, default=25566, help="Gateway control port (default: 25566)")
 
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
 
     # stop
-    subparsers.add_parser("stop", help="Stop the server")
+    parser_stop = subparsers.add_parser("stop", help="Stop the server")
+    parser_stop.set_defaults(
+        func=lambda args: (
+            "stop", {}
+    ))
 
     # status
-    subparsers.add_parser("status", help="Get server status")
+    parser_status = subparsers.add_parser("status", help="Get server status")
+    parser_status.set_defaults(
+        func=lambda args: (
+            "status", {}
+    ))
 
     # list
-    subparsers.add_parser("list", help="List all players, containers and hosts")
+    list_parser = subparsers.add_parser("list", help="List all players, containers and hosts")
+    list_parser.add_argument("-r", help="Resource to list", choices=("players", "containers", "hosts"), required=True)
+    list_parser.set_defaults(
+        func=lambda args: (
+            "list",
+            {"resource": args.r}
+    ))
 
     # Player commands group
     player_parser = subparsers.add_parser("player", help="Player management")
@@ -108,11 +124,21 @@ def send_cmd(argv: list[str]) -> int:
     parser_add_player = player_subparsers.add_parser("add", help="Add a player to whitelist")
     parser_add_player.add_argument("name", help="Player username")
     parser_add_player.add_argument("subdomain", help="Server subdomain")
+    parser_add_player.set_defaults(
+        func=lambda args: (
+            "add-player",
+            {"username": args.name, "subdomain": args.subdomain}
+    ))
 
     # player remove <name> <server_subdomain>
     parser_remove_player = player_subparsers.add_parser("remove", help="Remove a player from whitelist")
     parser_remove_player.add_argument("name", help="Player username")
     parser_remove_player.add_argument("subdomain", help="Server subdomain")
+    parser_remove_player.set_defaults(
+        func=lambda args: (
+            "remove-player",
+            {"username": args.name, "subdomain": args.subdomain}
+    ))
 
     # Container commands group
     container_parser = subparsers.add_parser("container", help="Container management")
@@ -122,14 +148,29 @@ def send_cmd(argv: list[str]) -> int:
     parser_add_container = container_subparsers.add_parser("add", help="Add a container mapping")
     parser_add_container.add_argument("ip", help="Container IP address")
     parser_add_container.add_argument("port", type=int, help="Container port")
+    parser_add_container.set_defaults(
+        func=lambda args: (
+            "add-container",
+            {"ip": args.ip, "port": str(args.port)}
+    ))
 
     # container remove <subdomain>
     parser_remove_container = container_subparsers.add_parser("remove", help="Remove a container mapping")
     parser_remove_container.add_argument("subdomain", help="Container subdomain")
+    parser_remove_container.set_defaults(
+        func=lambda args: (
+            "remove-container",
+            {"subdomain": args.subdomain}
+    ))
 
     # container kickall <subdomain>
     parser_kickall_container = container_subparsers.add_parser("kickall", help="Kick all players connected to container")
     parser_kickall_container.add_argument("subdomain", help="Container subdomain")
+    parser_kickall_container.set_defaults(
+        func=lambda args: (
+            "kick-all",
+            {"subdomain": args.subdomain}
+    ))
 
     # Host commands group
     host_parser = subparsers.add_parser("host", help="Host management")
@@ -141,75 +182,41 @@ def send_cmd(argv: list[str]) -> int:
     parser_add_host.add_argument("mac", help="Host MAC address")
     parser_add_host.add_argument("user", help="Host SSH user")
     parser_add_host.add_argument("path", help="Path on host")
+    parser_add_host.set_defaults(
+        func=lambda args: (
+            "add-host",
+            {"ip": args.ip, "mac": args.mac, "user": args.user, "path": args.path}
+    ))
 
     # host remove <ip>
     parser_remove_host = host_subparsers.add_parser("remove", help="Remove a physical host")
     parser_remove_host.add_argument("ip", help="Host IP address")
+    parser_remove_host.set_defaults(
+        func=lambda args: (
+            "remove-host",
+            {"ip": args.ip}
+    ))
     
     # host kickall <ip>
     parser_kickall_host = host_subparsers.add_parser("kickall", help="Kick all players connected to host")
     parser_kickall_host.add_argument("ip", help="Host IP address")
+    parser_kickall_host.set_defaults(
+        func=lambda args: (
+            "kick-all",
+            {"ip": args.ip}
+    ))
 
     # Parse arguments skipping argv[0] (script name)
     args = parser.parse_args(argv[1:])
 
-    # Map argparse result to the command string expected by the server socket
-    
-    socket_args = {}
-    command_name = args.command
+    # Execute the handler function mapped to the command
+    if hasattr(args, "func"):
+        command_name, socket_args = args.func(args)
+        return send_request(args.ip, args.port, command_name, socket_args)
+    else:
+        print(f"ERROR: No handler for command {args.command}")
+        return 1
 
-    if args.command == "player":
-        if args.subcommand == "add":
-            command_name = "add-player"
-            socket_args = {
-                "username": args.name,
-                "subdomain": args.subdomain
-            }
-        elif args.subcommand == "remove":
-            command_name = "remove-player"
-            socket_args = {
-                "username": args.name,
-                "subdomain": args.subdomain
-            }
-            
-    elif args.command == "container":
-        if args.subcommand == "add":
-            command_name = "add-container"
-            socket_args = {
-                "ip": args.ip,
-                "port": str(args.port)
-            }
-        elif args.subcommand == "remove":
-            command_name = "remove-container"
-            socket_args = {
-                "subdomain": args.subdomain
-            }
-        elif args.subcommand == "kickall":
-            command_name = "kick-all"
-            socket_args = {
-                "subdomain": args.subdomain
-            }
-    elif args.command == "host":
-        if args.subcommand == "add":
-            command_name = "add-host"
-            socket_args = {
-                "ip": args.ip,
-                "mac": args.mac,
-                "user": args.user,
-                "path": args.path
-            }
-        elif args.subcommand == "remove":
-            command_name = "remove-host"
-            socket_args = {
-                "ip": args.ip
-            }
-        elif args.subcommand == "kickall":
-            command_name = "kick-all"
-            socket_args = {
-                "ip": args.ip
-            }
-    
-    return send_request(args.port, command_name, socket_args, args.ip)
 
 
 if __name__ == '__main__':
