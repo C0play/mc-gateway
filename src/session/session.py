@@ -33,10 +33,9 @@ class Session():
         for packet in packets:
             self.container_socket.sendall(packet.reencode())
 
-        last_client_send: float | None = None
-        rtt_sum = 0.0
-        rtt_count = 0
         sess_start = time.monotonic()
+        last_send = None
+        total_rtt, rtt_samples = 0.0, 0
 
         try:
             self.client.socket.setblocking(True)
@@ -44,49 +43,23 @@ class Session():
 
             while True and not self._server_disconnect_signal:
                 rlist, _, _ = select.select([self.client.socket, self.container_socket], [], [])
-                for sock in rlist:
-                    if sock is self.client.socket:
-                        data = None
-                        try:
-                            data = self.client.socket.recv(65536)
-                        except (BlockingIOError, OSError):
-                            data = None
-                        if not data: # client closed
-                            return 
-                        
-                        try:
-                            self.container_socket.sendall(data)
-                        except (BrokenPipeError, ConnectionResetError, OSError) as e:
-                            logger.error(f"{self.client} container disconnected during forwarding")
-                            return
+                
+                if self.client.socket in rlist:
+                    self._transfer(self.client.socket, self.container_socket, "disconnected during forwarding")
+                    last_send = time.monotonic()
 
-                        last_client_send = time.monotonic()
+                elif self.container_socket in rlist:
+                    self._transfer(self.container_socket, self.client.socket, "container disconnected during forwarding")
+                    
+                    if not last_send: 
+                        continue
+                    
+                    total_rtt += time.monotonic() - last_send
+                    rtt_samples += 1
+                    last_send = None
 
-                    else:
-                        data = None
-                        try:
-                            data = self.container_socket.recv(65536)
-                        except (BlockingIOError, OSError):
-                            data = None
-                        if not data: # container closed
-                            logger.error(f"{self.client} container disconnected during forwarding")
-                            return
-                        
-                        try:
-                            self.client.socket.sendall(data)
-                        except (BrokenPipeError, ConnectionResetError, OSError) as e:
-                            logger.info(f"{self.client} client disconnected during forwarding")
-                            return
-                        
-                        if last_client_send is not None:
-                            rtt = (time.monotonic() - last_client_send)
-                            if rtt >= 0:
-                                rtt_sum += rtt
-                                rtt_count += 1
-                            last_client_send = None
-
-        except (ConnectionResetError, BrokenPipeError, OSError) as e:
-            logger.error(f"{self.client} connection closed unexpectedly {e}")
+        except StopIteration as e:
+            logger.warning(e)
         except Exception as e:
             logger.error(f"{self.client} forwarding error: {e}")
         finally:
@@ -97,10 +70,24 @@ class Session():
             except Exception as e:
                 logger.error(f"failed to disconnect container, after forwarding: {e}")
             
-            if rtt_count > 0:
-                avg_ms = (rtt_sum / rtt_count) * 1000.0
+            if rtt_samples > 0:
+                avg_ms = (total_rtt / rtt_samples) * 1000.0
                 duration = time.monotonic() - sess_start
-                logger.info(f"{self.client}: avg ping {avg_ms:.2f} ms over {rtt_count} samples (session {duration:.1f}s)")
+                logger.info(f"{self.client}: avg ping {avg_ms:.2f} ms over {rtt_samples} samples (session {duration:.1f}s)")
+
+
+    def _transfer(self, source: socket.socket, destination: socket.socket, error_msg: str) -> None:
+        try:
+            data = source.recv(65536)
+        except (BlockingIOError, OSError):
+            data = None
+        if not data: # source closed
+            raise StopIteration(f"{self.client} {error_msg}")
+        
+        try:
+            destination.sendall(data)
+        except (BrokenPipeError, ConnectionResetError, OSError) as e:
+            raise StopIteration(f"{self.client} {error_msg}")
 
 
     def _connect(self) -> None:
@@ -152,13 +139,16 @@ class Session():
         """
         try:
             rlist, _, _ = select.select([self.client.socket], [], [], timeout)
-            if self.client.socket in rlist:
-                try:
-                    peek = self.client.socket.recv(1, socket.MSG_PEEK)
-                except (BlockingIOError, OSError):
-                    return False
-                return peek == b""
-            return False
+            if self.client.socket not in rlist:
+                return False
+        
+            try:
+                peek = self.client.socket.recv(1, socket.MSG_PEEK)
+            except (BlockingIOError, OSError):
+                return False
+        
+            return peek == b""
+        
         except Exception:
             return True
         
