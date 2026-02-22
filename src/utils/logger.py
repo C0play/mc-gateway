@@ -1,5 +1,11 @@
+"""
+Configuration for the application-wide logging capability.
+Sets up console output with specific formatting and handles log levels via environment variables.
+"""
+
 import logging
 import os
+
 
 lvl = None
 match os.getenv("LOG_LEVEL"):

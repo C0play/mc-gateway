@@ -6,7 +6,16 @@ from ..utils.logger import logger
 
 
 def _handle_error(full_cmd: dict, error_message: str):
-    """Helper for printing error and logging it."""
+    """
+    Helper for printing error and logging it.
+
+    Args:
+        full_cmd: The command dictionary that caused the error.
+        error_message: The error description.
+
+    Returns:
+        int: Always returns 1 (error exit code).
+    """
     
     print(f"ERROR: {error_message}")
     logger.error(f"CLI ERROR: {full_cmd} -> {error_message}")
@@ -14,7 +23,12 @@ def _handle_error(full_cmd: dict, error_message: str):
 
 
 def _print_response(data):
-    """Universal response printer - just pretty prints JSON."""
+    """
+    Universal response printer - just pretty prints JSON.
+
+    Args:
+        data: The data dictionary or string to print.
+    """
 
     if isinstance(data, str):
         print(f"{data}")
@@ -24,7 +38,17 @@ def _print_response(data):
 
 
 def send_request(port: int, command: str, kwargs: dict[str, str] = {}):
-    """Encapsulates sending a command to the server socket and handling the response."""
+    """
+    Encapsulates sending a command to the server socket and handling the response.
+
+    Args:
+        port: The port to connect to.
+        command: The command name.
+        kwargs: Dictionary of arguments for the command.
+    
+    Returns:
+        int: 0 on success, 1 on failure.
+    """
 
     full_cmd = {
         "cmd_name": command,

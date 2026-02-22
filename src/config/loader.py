@@ -12,6 +12,15 @@ from .config import  (
 
 
 def _load_storage() -> StorageConfig:
+    """
+    Loads storage configuration from environment variables.
+
+    Returns:
+        StorageConfig: The loaded storage configuration.
+    
+    Raises:
+        ConfigException: If any required environment variable is missing.
+    """
 
     postgres_name = os.getenv("PG_NAME")
     postgres_user = os.getenv("PG_USER")
@@ -29,11 +38,19 @@ def _load_storage() -> StorageConfig:
         db_init(postgres)
         return StorageConfig(postgres)
 
-    raise RuntimeError(f"failed to load storage configuration")
+    raise ConfigException(f"failed to load storage configuration")
 
 
 def load_config() -> Config:
-    """Load the configuration from environment variables."""
+    """
+    Loads the configuration from environment variables.
+
+    Returns:
+        Config: The complete application configuration.
+
+    Raises:
+        ConfigException: If required environment variables are missing.
+    """
     
     ip = os.getenv("SERVER_IP")
     port = os.getenv("SERVER_PORT")

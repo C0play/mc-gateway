@@ -17,8 +17,23 @@ from .api import API, TCPAdapter
 
 
 class Server:
+    """
+    The main server class that handles Minecraft client connections and control commands.
+    """
     
     def __init__(self, config: Config, whitelist: WhitelistManager, sessions: SessionManager) -> None:
+        """
+        Initializes the Server with configuration, whitelist, and session managers.
+        Sets up the Minecraft server socket and the control socket.
+
+        Args:
+            config: The configuration object.
+            whitelist: The whitelist manager.
+            sessions: The session manager.
+        
+        Raises:
+            RuntimeError: If socket binding or initialization fails.
+        """
         try:
             self._shutdown = False
             
@@ -60,7 +75,11 @@ class Server:
             raise RuntimeError(f"Exception during server init: {e}")
     
     
-    def start(self) -> 'Server':
+    def start(self) -> None:
+        """
+        Starts the main server loop, listening for incoming connections on both sockets.
+        Handles graceful shutdown on signals.
+        """
         try:
             while not self._shutdown:
                 sockets = [self._server_socket, self._ctrl_socket]
@@ -84,10 +103,10 @@ class Server:
             except Exception as e:
                 logger.error(f"closing mc_socket: {e}")
             logger.info("Server stopped")
-            return self
 
 
     def _handle_ctrl_socket(self):
+        """Accepts a connection on the control socket and starts a thread to handle commands."""
         control_sock, _ = self._ctrl_socket.accept()
         try:
             threading.Thread(target=self.cmd_handler.handle, daemon=True, args=(control_sock,)).start()
@@ -96,6 +115,9 @@ class Server:
 
 
     def _handle_mc_socket(self):
+        """Accepts a connection on the Minecraft socket, initializes a Client instance and
+        starts a thread to handle the connection.
+        """
         client_sock, addr = self._server_socket.accept()
         client = Client(client_sock, addr)
 

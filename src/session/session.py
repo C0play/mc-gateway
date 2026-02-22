@@ -9,8 +9,18 @@ from ..utils.logger import logger
 
 
 class Session():
+    """
+    Represents an active bi-directional forwarding session between a client and a container.
+    """
     
     def __init__(self, client: Client, container: BaseContainer) -> None:
+        """
+        Initializes the session.
+
+        Args:
+            client: The connected client.
+            container: The target container.
+        """
         self.client = client
         self.container = container
         self.container_socket = None
@@ -19,7 +29,12 @@ class Session():
     
 
     def forward(self, *packets: Packet) -> None:
-        """Forward all provided packets to the container, and then all traffic between the client and the container."""
+        """
+        Forwards provided packets to the container, then loops to forward traffic bidirectionally.
+        
+        Args:
+            *packets: Initial packets to send to the container (e.g. handshake, login).
+        """
         try:
             self._connect()
         except Exception as e:
@@ -77,6 +92,17 @@ class Session():
 
 
     def _transfer(self, source: socket.socket, destination: socket.socket, error_msg: str) -> None:
+        """
+        Transfers a portion of data from source to destination.
+
+        Args:
+            source: The socket to read from.
+            destination: The socket to write to.
+            error_msg: The error message to use if transfer fails.
+            
+        Raises:
+             StopIteration: If the source socket is closed or an error occurs.
+        """
         try:
             data = source.recv(65536)
         except (BlockingIOError, OSError):
@@ -91,7 +117,14 @@ class Session():
 
 
     def _connect(self) -> None:
-        """Connect the container's socket"""
+        """
+        Establishes connection to the container's socket.
+        Retries up to 3 times if connection is refused.
+        
+        Raises:
+             RuntimeError: If connection fails after retries or if host/container is offline.
+             ConnectionAbortedError: If the client disconnects while waiting.
+        """
         try:
         
             if not self.container.host.is_online():
@@ -124,7 +157,12 @@ class Session():
 
 
     def _disconnect(self) -> None:
-        """Disconnect the container's socket"""
+        """
+        Closes the container's socket.
+        
+        Raises:
+             RuntimeError: If closing the socket fails.
+        """
         try:
             if not self.container_socket:
                 return
@@ -134,8 +172,14 @@ class Session():
         
 
     def _client_disconnected(self, timeout: float = 0.0) -> bool:
-        """Return True if the client socket appears closed within timeout seconds.
-        Any unexpected error is treated as disconnected.
+        """
+        Checks if the client socket is closed or has data ready to peek (indicating potential closure).
+        
+        Args:
+            timeout: How long to wait for checking socket state.
+            
+        Returns:
+            bool: True if the client appears disconnected, False otherwise.
         """
         try:
             rlist, _, _ = select.select([self.client.socket], [], [], timeout)
@@ -154,6 +198,12 @@ class Session():
         
 
     def server_disconnect(self, reason: str) -> None:
+        """
+        Signals that the session should end due to a server-side reason.
+        
+        Args:
+            reason: The reason for disconnection.
+        """
         self._server_disconnect_signal = True
         self._server_disconnect_reason = reason
 

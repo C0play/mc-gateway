@@ -1,19 +1,82 @@
 import time
 import threading
+from abc import ABC, abstractmethod
 
 from ..config.config import ShutdownConfig
 
 from ..container.container import BaseContainer
 from ..container.manager import ContainerManager
-from ..host.host import BaseHost
 
 from ..gateway.client import Client
 
 from .session import Session
+
 from ..utils.logger import logger
 
 
-class SessionManager():
+class BaseSessionManager(ABC):
+    """A base class for managing sessions"""
+
+    @abstractmethod
+    def __init__(self, containerManager: ContainerManager, shutdownConfig: ShutdownConfig) -> None:
+        self.containers = containerManager
+        self.cfg = shutdownConfig
+
+    @abstractmethod
+    def open(self, client: Client, subdomain: str) -> Session:
+        """
+        Creates a new session for the client connected to the specified subdomain.
+
+        Args:
+            client: The client requesting valid session.
+            subdomain: The target container's subdomain.
+
+        Returns:
+            Session: The created session object.
+
+        Raises:
+            KeyError: If the client already has a session.
+            Exception: If loading the container fails.
+        """
+        ...
+
+    @abstractmethod
+    def interrupt(self, reason: str, subdomain: str = "", ip: str = "") -> None:
+        """
+        Force closes all client sessions matching the criteria.
+        
+        Args:
+             reason: The disconnect reason sent to clients.
+             subdomain: (Optional) Filter by container subdomain.
+             ip: (Optional) Filter by host IP.
+
+        Raises:
+             ValueError: If neither subdomain nor ip is provided.
+        """
+        ...
+    
+    @abstractmethod
+    def close(self, client: Client) -> None:
+        """
+        Removes a client's session.
+
+        Args:
+             client: The client to remove.
+
+        Raises:
+             KeyError: If the client has no open session.
+        """
+        ...
+    
+    @abstractmethod
+    def autoshutdown(self) -> None:
+        """
+        Periodically checks for idle containers and stops them based on configuration.
+        """
+        ...
+
+
+class SessionManager(BaseSessionManager):
     
     def __init__(self, containerManager: ContainerManager, shutdownConfig: ShutdownConfig) -> None:
         self.containers = containerManager
@@ -24,7 +87,6 @@ class SessionManager():
 
 
     def open(self, client: Client, subdomain: str) -> Session:
-        """Create a new session for the client."""
 
         with self.sessions_lock:
             if client in self.sessions:
@@ -45,7 +107,6 @@ class SessionManager():
 
 
     def interrupt(self, reason: str, subdomain: str = "", ip: str = "") -> None:
-        """Force close all client sessions for a container even if it's still open"""
 
         if not (subdomain or ip):
             logger.error(f"ip and subdomain")
@@ -64,7 +125,6 @@ class SessionManager():
 
 
     def close(self, client: Client) -> None:
-        """Delete a client's session after they already disconnected"""
 
         with self.sessions_lock:
             if client not in self.sessions:
@@ -74,7 +134,6 @@ class SessionManager():
 
 
     def autoshutdown(self) -> None:
-        """Shutdown all containers that didn't have an active session in a provided time frame."""
         
         container_timeout = max(120, int(self.cfg.container_idle_timeout))
         check_interval = max(15, min(60, container_timeout // 3))
@@ -110,7 +169,6 @@ class SessionManager():
                     
 
     def dict(self) -> dict[str, dict[str, str]]:
-        """Return all active sessions in JSON friendly format."""
 
         with self.sessions_lock:
             temp = self.sessions.items()

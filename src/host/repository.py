@@ -4,51 +4,80 @@ from peewee import IntegrityError
 
 
 class BaseHostRepository(ABC):
-    """A base class for managing container parameters stored in a file"""
+    """A base class for managing host parameters stored in persistent storage"""
     
     @abstractmethod
     def create(self, ip: str, mac: str, user: str, path: str) -> None:
-        """Add row with specified fields to file."""
+        """
+        Creates a new host record.
+
+        Args:
+            ip: Host IP address.
+            mac: Host MAC address.
+            user: SSH username.
+            path: Base path on the host.
+
+        Raises:
+            KeyError: If the host already exists.
+            RuntimeError: If an unexpected error occurs.
+        """
         ...
     
     @abstractmethod
     def read(self, ip: str) -> tuple[str, str, str]:
-        """Get a row, where the first field value matches ip."""
+        """
+        Retrieves host details by IP.
+
+        Args:
+            ip: The IP address to look up.
+
+        Returns:
+            tuple[str, str, str]: A tuple containing (mac, user, path).
+
+        Raises:
+            KeyError: If the host does not exist.
+        """
         ...
     
     @abstractmethod
     def delete(self, ip: str) -> None:
-        """Remove a row, where the first field value matches ip."""
+        """
+        Removes a host record by IP.
+
+        Args:
+            ip: The IP address of the host to remove.
+
+        Raises:
+            KeyError: If the host does not exist.
+        """
         ...
     
     def dict(self) -> list[dict[str, str]]:
-        """Return file contents in JSON friendly format."""
+        """
+        Returns all stored hosts in a JSON-friendly format.
+
+        Returns:
+             list[dict[str, str]]: List of host dictionaries.
+        """
         ...
 
 
 
 class HostRepository(BaseHostRepository):
-    """A class for managing host parameters stored in a postgres database"""
+    """
+    Implementation of host storage using Peewee ORM.
+    """
     
     def create(self, ip: str, mac: str, user: str, path: str) -> None:
-        """Add row with specified fields to file."""
-
         try:
             Host.create(ip=ip, mac=mac, user=user, path=path)
-        except IntegrityError as e:
-            msg = str(e).lower()
-            if "ip" in msg:
-                raise KeyError(f"host {ip} already exists")
-            elif "mac" in msg:
-                raise KeyError(f"host with mac={mac} already exists")
-            else:
-                 raise KeyError(f"host {ip} or mac {mac} already exists: {e}")
+        except (KeyError, IntegrityError) as e:
+            raise KeyError(f"failed to add host: {e}")
         except Exception as e:
-            raise KeyError(f"failed to add host {ip}: {e}")
+            raise RuntimeError(f"unexpected error while creating a new host: {e}")
 
     
     def read(self, ip: str) -> tuple[str, str, str]:
-        """Get a row, where the first field value matches ip."""
 
         host = Host.get_or_none(Host.ip == ip)
         if host is None:
@@ -57,7 +86,6 @@ class HostRepository(BaseHostRepository):
 
     
     def delete(self, ip: str) -> None:
-        """Remove a row, where the first field value matches ip."""
 
         query = Host.delete().where(Host.ip == ip)
         rows_deleted = query.execute()
@@ -66,8 +94,6 @@ class HostRepository(BaseHostRepository):
     
 
     def dict(self) -> list[dict[str, str]]:
-        """Return file contents in JSON friendly format."""
-
         hosts = Host.select()
         return [{
                 "ip": h.ip,

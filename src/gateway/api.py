@@ -24,14 +24,32 @@ class APIResponse(TypedDict):
 
 
 class API(): 
+    """
+    Handles command execution for the gateway server via the control interface.
+    """
 
     def __init__(self, server: 'Server') -> None:
+        """
+        Initializes the API with a reference to the server.
+
+        Args:
+            server: The server instance to control.
+        """
         self.server = server
         self.commands: dict[str, Callable[..., APIResponse]] = self._register_commands()
 
 
     def execute(self, cmd_name: str, **kwargs) -> APIResponse:
-        """Executes a command by name, automatically validating arguments."""
+        """
+        Executes a command by name, automatically validating arguments against the handler's signature.
+
+        Args:
+            cmd_name: The name of the command to execute.
+            **kwargs: Arguments to pass to the command handler.
+
+        Returns:
+            APIResponse: The result of the command execution or an error message.
+        """
 
         handler = self.commands.get(cmd_name)
         if not handler:
@@ -171,12 +189,27 @@ class API():
 
 
 class TCPAdapter():
+    """
+    Adapts a TCP socket connection to the API class, handling JSON parsing and response sending.
+    """
 
     def __init__(self, api: API) -> None:
+        """
+        Initializes the adapter.
+
+        Args:
+            api: The API instance to execute commands on.
+        """
         self.api = api
 
 
     def handle(self, socket: socket) -> None:
+        """
+        Reads a command from the socket and executes it via API.
+
+        Args:
+            socket: Socket to receive commands from
+        """
         try:
             data = json.loads(socket.recv(1024).decode())
             if not data:

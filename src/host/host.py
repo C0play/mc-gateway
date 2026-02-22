@@ -18,26 +18,59 @@ class BaseHost(ABC):
 
     @abstractmethod
     def is_online(self) -> bool:
-        """Check if the host is online"""
+        """
+        Checks if the host is reachable.
+
+        Returns:
+            bool: True if the host is online and reachable.
+        """
         ...
     
     @abstractmethod
     def is_starting(self) -> bool:
-        """Check if host startup was initiated"""
+        """
+        Checks if the host is currently in the process of waking up.
+
+        Returns:
+            bool: True if a start operation is in progress.
+        """
         ...
 
     @abstractmethod
     def start(self) -> bool:
-        """Start the host"""
+        """
+        Initiates the host startup sequence.
+        
+        Returns:
+            bool: True if the host is online.
+
+        Raises:
+            TimeoutError: If the host fails to become online within the expected time.
+            RuntimeError: If the start command fails.
+        """
         ...
     
     @abstractmethod
     def stop(self) -> bool:
-        """Stop the host"""
+        """
+        Initiates the host shutdown sequence.
+
+        Returns:
+            bool: True if the host was shut down successfully.
+
+        Raises:
+            TimeoutError: If the host fails to stop within the expected time.
+            RuntimeError: If the stop command fails.
+        """
         ...
 
     def dict(self) -> dict[str, str]:
-        """Return host params as a dict"""
+        """
+        Returns host parameters as a dictionary.
+
+        Returns:
+            dict[str, str]: Dictionary containing 'mac', 'user', and 'path'.
+        """
         return {
             "mac": self.mac,
             "user": self.user,
@@ -60,6 +93,9 @@ class BaseHost(ABC):
 
 
 class SSHHost(BaseHost):
+    """
+    A host implementation that manages a remote machine via SSH and Wake-on-LAN.
+    """
 
     def __init__(self, ip: str, mac: str,  user: str, path: str) -> None:
         super().__init__(ip, mac, user, path)
@@ -69,6 +105,9 @@ class SSHHost(BaseHost):
         
 
     def is_online(self) -> bool:
+        """
+        Checks connectivity via TCP/22 (SSH).
+        """
         try:
             with socket.create_connection((self.ip, 22), timeout=0.5):
                 return True
@@ -77,6 +116,9 @@ class SSHHost(BaseHost):
 
 
     def is_starting(self) -> bool:
+        """
+        Checks local lock to determine if wake-up is in progress.
+        """
         if self._start_lock.acquire(blocking=False):
             self._start_lock.release()
             return False
@@ -84,6 +126,9 @@ class SSHHost(BaseHost):
 
 
     def start(self) -> bool:
+        """
+        Uses `wakeonlan` magic packet and waits for SSH port availability.
+        """
         try:
             with self._start_lock:
                 if self.is_online():
@@ -108,6 +153,9 @@ class SSHHost(BaseHost):
 
 
     def stop(self) -> bool:
+        """
+        Initiates the host shutdown sequence via SSH command.
+        """
         try:
             with self._stop_lock:
                 if not self.is_online():

@@ -14,8 +14,19 @@ class State(IntEnum):
 
 
 class Client():
+    """
+    Represents a connected Minecraft client.
+    Stores socket information, protocol state, and authentication details.
+    """
 
     def __init__(self, client_socket: socket.socket, addr: tuple[str, int]) -> None:
+        """
+        Initializes the Client with a socket and address.
+
+        Args:
+            client_socket: The client's socket object.
+            addr: A tuple containing (ip, port).
+        """
         self.socket = client_socket
         self.ip = addr[0]
         self.port = addr[1]
@@ -27,10 +38,12 @@ class Client():
 
 
     def updateState(self, newState: int)  -> None:
+        """Updates the protocol state of the client."""
         self.state = newState
 
 
     def close(self):
+        """Closes the client socket."""
         try:
             self.socket.close()
         except Exception as e:

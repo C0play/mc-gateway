@@ -28,6 +28,10 @@ class Login():
 
 
 class Packet:
+    """
+    Represents a Minecraft protocol packet.
+    Handles reading packet data from a client socket and parsing it based on the client's state.
+    """
 
     def __init__(self, client: Client):
         self.client = client

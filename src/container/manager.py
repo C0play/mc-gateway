@@ -1,14 +1,69 @@
 import threading
+from abc import ABC, abstractmethod
 
 from .repository import BaseContainerRepository
-from .container import SSHContainer
+from .container import BaseContainer, SSHContainer
 from ..host.manager import BaseHostManager
 from ..utils.logger import logger
 
 
+class BaseContainerManager(ABC):
+    """Manages the lifecycle and active state of containers."""
 
-class ContainerManager():
-    """A class for managing active containers"""
+    @abstractmethod
+    def __init__(self, containerRepo: BaseContainerRepository, hostManager: BaseHostManager) -> None:
+        self.storage = containerRepo
+        self.hostManager = hostManager
+
+    @abstractmethod
+    def load(self, subdomain: str) -> BaseContainer:
+        """
+        Returns an active container or retrieves it from storage and adds it to the active list.
+
+        Args:
+            subdomain: The subdomain of the container.
+
+        Returns:
+            BaseContainer: The initialized container instance.
+
+        Raises:
+            KeyError: If the container parameters cannot be found in storage.
+            RuntimeError: If the associated host cannot be found.
+        """
+        ...
+
+    @abstractmethod
+    def unload(self, subdomain: str) -> None:
+        """
+        Removes a container from the active list.
+
+        Args:
+            subdomain: The subdomain of the container to unload.
+        """
+        ...
+
+    @abstractmethod
+    def delete(self, subdomain: str) -> None:
+        """
+        Removes a container from active list and storage.
+
+        Args:
+            subdomain: The subdomain of the container to delete.
+        """
+        ...
+
+    @abstractmethod
+    def dict(self) -> dict[str, dict[str, str]]:
+        """
+        Returns all active containers in a JSON-friendly format.
+
+        Returns:
+             dict[str, dict[str, str]]: Mapping of subdomains to container details.
+        """
+        ...
+
+
+class ContainerManager(BaseContainerManager):
 
     def __init__(self, containerRepo: BaseContainerRepository, hostManager: BaseHostManager) -> None:
         self.storage = containerRepo
@@ -19,7 +74,6 @@ class ContainerManager():
 
     
     def load(self, subdomain: str) -> SSHContainer:
-        """Return an active container or retrieve it from storage, and add to actives."""
 
         with self.lock:
             if subdomain in self.active_containers:
@@ -43,7 +97,6 @@ class ContainerManager():
         
 
     def unload(self, subdomain: str) -> None:
-        """Remove a container from actives."""
 
         logger.debug(f"Removing container {subdomain} from active list")
         with self.lock:
@@ -51,7 +104,6 @@ class ContainerManager():
                 del self.active_containers[subdomain]
     
     def delete(self, subdomain: str) -> None:
-        """Remove a container from actives and storage."""
 
         logger.debug(f"Removing container {subdomain} from storage")
         self.unload(subdomain)
@@ -59,7 +111,6 @@ class ContainerManager():
     
     
     def dict(self) -> dict[str, dict[str, str]]:
-        """Return all active containers in JSON friendly format."""
 
         with self.lock:
             temp = self.active_containers.items()

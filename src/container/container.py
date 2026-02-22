@@ -18,26 +18,61 @@ class BaseContainer(ABC):
 
     @abstractmethod
     def is_online(self) -> bool:
-        """Check if the container is online"""
+        """
+        Checks if the container is currently running.
+
+        Returns:
+            bool: True if the container is running and responsive, False otherwise.
+        """
         ...
 
     @abstractmethod
     def is_starting(self) -> bool:
-        """Check if container startup was initiated"""
+        """
+        Checks if the container is currently in the process of starting up.
+        This is used to prevent multiple start commands from being issued simultaneously.
+
+        Returns:
+            bool: True if a start operation is in progress.
+        """
         ...
 
     @abstractmethod
     def start(self) -> bool:
-        """Start the container"""
+        """
+        Initiates the container startup sequence.
+        Handles host startup if necessary.
+
+        Returns:
+            bool: True if the container started successfully or was already running.
+        
+        Raises:
+            TimeoutError: If the container fails to become online within the expected time.
+            RuntimeError: If the start command fails.
+        """
         ...
 
     @abstractmethod
     def stop(self) -> bool:
-        """Stop the container"""
+        """
+        Initiates the container shutdown sequence.
+
+        Returns:
+            bool: True if the container stopped successfully or was already stopped.
+            
+        Raises:
+            TimeoutError: If the container fails to stop within the expected time.
+            RuntimeError: If the stop command fails.
+        """
         ...
 
     def dict(self) -> dict[str, str]:
-        """Return container params as a dict"""
+        """
+        Returns a dictionary representation of the container's connection parameters.
+
+        Returns:
+             dict[str, str]: Dictionary containing 'ip' and 'port'.
+        """
         return {
             "ip": self.host.ip,  
             "port": str(self.port)
@@ -60,8 +95,14 @@ class BaseContainer(ABC):
 
 
 class SSHContainer(BaseContainer):
+    """
+    A container implementation that manages a Docker container on a remote host via SSH.
+    """
 
     def __init__(self, subdomain: str, port: int, host: BaseHost) -> None:
+        """
+        Initializes the SSHContainer.
+        """
         super().__init__(subdomain, port, host)
         
         self.path: str = f"{self.host.path}/server_{port}"
@@ -72,6 +113,9 @@ class SSHContainer(BaseContainer):
 
 
     def is_online(self) -> bool:
+        """
+        Implementation using `docker inspect` via SSH.
+        """
         if not self.host.is_online():
             return False
         try:
@@ -91,6 +135,9 @@ class SSHContainer(BaseContainer):
 
 
     def is_starting(self) -> bool:
+        """
+        Checks local lock to determine if start is in progress.
+        """
         if self._start_lock.acquire(blocking=False):
             self._start_lock.release()
             return False

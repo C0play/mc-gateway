@@ -24,6 +24,7 @@ class BaseModel(pewe.Model):
 
 
 class Host(BaseModel):
+    """Peewee model representing a physical host."""
     ip = pewe.CharField(max_length=45, unique=True, primary_key=True)
     mac = pewe.CharField(max_length=17, unique=True)
     user = pewe.CharField(max_length=50)
@@ -35,6 +36,7 @@ class Host(BaseModel):
 
 
 class Container(BaseModel):
+    """Peewee model representing a Docker container."""
     subdomain = pewe.CharField(max_length=4, unique=True, primary_key=True)
     port = pewe.IntegerField()
     host = pewe.ForeignKeyField(Host, backref="containers", field='ip', null=True, on_delete='SET NULL')
@@ -50,6 +52,7 @@ class Container(BaseModel):
 
 
 class Whitelist(BaseModel):
+    """Peewee model representing a whitelist entry."""
     username = pewe.CharField(max_length=50)
     container = pewe.ForeignKeyField(Container, backref="whitelist", field='subdomain', on_delete='CASCADE')
 
