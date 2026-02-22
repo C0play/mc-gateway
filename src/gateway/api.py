@@ -93,7 +93,12 @@ class API():
         with self.server._client_count_lock:
             return API._assemble_res(
                 "OK",
-                str(self.server._client_count) + " " + str(self.server._sessions.dict())
+                {
+                    "clients": str(self.server._client_count),
+                    "sessions": self.server._sessions.dict(),
+                    "containers": self.server._sessions.containers.dict(),
+                    "hosts": self.server._sessions.containers.hostManager.dict(),
+                }
             )
         
 

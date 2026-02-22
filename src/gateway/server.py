@@ -107,6 +107,7 @@ class Server:
 
     def _handle_ctrl_socket(self):
         """Accepts a connection on the control socket and starts a thread to handle commands."""
+        
         control_sock, _ = self._ctrl_socket.accept()
         try:
             threading.Thread(target=self.cmd_handler.handle, daemon=True, args=(control_sock,)).start()
@@ -118,6 +119,7 @@ class Server:
         """Accepts a connection on the Minecraft socket, initializes a Client instance and
         starts a thread to handle the connection.
         """
+
         client_sock, addr = self._server_socket.accept()
         client = Client(client_sock, addr)
 

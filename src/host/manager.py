@@ -58,7 +58,7 @@ class BaseHostManager(ABC):
         Returns a dictionary representation of all active hosts.
 
         Returns:
-             dict[str, dict[str, str]]: A mapping of IP addresses to host details.
+            dict[str, dict[str, str]]: A mapping of IP addresses to host details.
         """
         ...
     
@@ -106,7 +106,8 @@ class SSHHostManager(BaseHostManager):
         logger.debug(f"Removing host {ip} from storage")
         self.storage.delete(ip)
             
-            
+
+
     def dict(self) -> dict[str, dict[str, str]]:
         with self.lock:
             temp = self.active_hosts.values()

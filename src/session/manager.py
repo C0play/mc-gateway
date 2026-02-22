@@ -143,33 +143,47 @@ class SessionManager(BaseSessionManager):
         while True:
             time.sleep(check_interval)
             now = time.time()
+            with self.containers.lock:
+                containers = self.containers.active_containers.values()
 
             with self.sessions_lock:
-                snapshot = [session for session in self.sessions.values()]
+                sessions = [session for session in self.sessions.values()]
 
-            containers: dict[BaseContainer, int] = {}
-            for session in snapshot:
-                clients = containers.setdefault(session.container, 0)
-                containers[session.container] = clients + 1
+            container_clients: dict[BaseContainer, int] = {}
+            for container in containers:
+                container_clients.setdefault(container, 0)
 
-            for container, clients in containers.items():
-                if clients > 0:
+            for session in sessions:
+                if session.container not in container_clients:
                     continue
+                clients = container_clients[session.container]
+                container_clients[session.container] = clients + 1
 
+            for container, clients in container_clients.items():
+                logger.debug(f"{container}: {now - container_idle_since.setdefault(container, now)}")
+                
+                if clients > 0:
+                    container_idle_since.pop(container, None)
+                    continue
+                
                 idle_for = now - container_idle_since.setdefault(container, now)
                 if idle_for < container_timeout:
                     continue
                 
                 logger.info(f"{container} idle for {int(idle_for)}s, stopping.")
                 try:
-                    container.stop()
+                    self.containers.unload(container.subdomain)
                     container_idle_since.pop(container, None)
                 except Exception:
                     logger.exception(f"failed to stop {container}")
                     
 
-    def dict(self) -> dict[str, dict[str, str]]:
+    def dict(self) -> list[dict[str, str]]:
 
         with self.sessions_lock:
             temp = self.sessions.items()
-        return {client.__str__(): session.container.dict() for client, session in temp}
+        return [{
+                "client": client.__str__(),
+                "container": session.container.__str__(),
+            } for client, session in temp
+        ]

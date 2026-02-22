@@ -100,8 +100,19 @@ class ContainerManager(BaseContainerManager):
 
         logger.debug(f"Removing container {subdomain} from active list")
         with self.lock:
-            if subdomain in self.active_containers:
-                del self.active_containers[subdomain]
+            if subdomain not in self.active_containers:
+                return
+            
+            self.active_containers[subdomain].stop()
+            del self.active_containers[subdomain]
+            
+            inactive_hosts = self.hostManager.dict()
+            for container in self.active_containers.values():
+                del inactive_hosts[container.host.ip]
+            
+            for host_ip in inactive_hosts:
+                self.hostManager.unload(host_ip)
+            
     
     def delete(self, subdomain: str) -> None:
 
