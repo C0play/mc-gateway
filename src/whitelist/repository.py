@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
-
-from ..utils.models import Whitelist, Container
 import peewee as pewe
 from peewee import fn
+
+from ..utils.logger import logger
+from ..utils.models import Whitelist, Container
 
 
 
@@ -79,8 +80,9 @@ class WhitelistRepository(BaseWhitelistRepository):
 
         if not expressions:
             return False
-
-        return Whitelist.select().where(*expressions).exists()
+        res = Whitelist.select().where(*expressions).exists()
+        logger.debug(f"{res} {fields}")
+        return res
 
 
 

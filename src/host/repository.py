@@ -7,17 +7,17 @@ class BaseHostRepository(ABC):
     """A base class for managing container parameters stored in a file"""
     
     @abstractmethod
-    def add(self, ip: str, mac: str, user: str, path: str) -> None:
+    def create(self, ip: str, mac: str, user: str, path: str) -> None:
         """Add row with specified fields to file."""
         ...
     
     @abstractmethod
-    def get(self, ip: str) -> tuple[str, str, str]:
+    def read(self, ip: str) -> tuple[str, str, str]:
         """Get a row, where the first field value matches ip."""
         ...
     
     @abstractmethod
-    def remove(self, ip: str) -> None:
+    def delete(self, ip: str) -> None:
         """Remove a row, where the first field value matches ip."""
         ...
     
@@ -30,7 +30,7 @@ class BaseHostRepository(ABC):
 class HostRepository(BaseHostRepository):
     """A class for managing host parameters stored in a postgres database"""
     
-    def add(self, ip: str, mac: str, user: str, path: str) -> None:
+    def create(self, ip: str, mac: str, user: str, path: str) -> None:
         """Add row with specified fields to file."""
 
         try:
@@ -47,7 +47,7 @@ class HostRepository(BaseHostRepository):
             raise KeyError(f"failed to add host {ip}: {e}")
 
     
-    def get(self, ip: str) -> tuple[str, str, str]:
+    def read(self, ip: str) -> tuple[str, str, str]:
         """Get a row, where the first field value matches ip."""
 
         host = Host.get_or_none(Host.ip == ip)
@@ -56,7 +56,7 @@ class HostRepository(BaseHostRepository):
         return host.mac, host.user, host.path
 
     
-    def remove(self, ip: str) -> None:
+    def delete(self, ip: str) -> None:
         """Remove a row, where the first field value matches ip."""
 
         query = Host.delete().where(Host.ip == ip)

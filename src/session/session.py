@@ -14,6 +14,8 @@ class Session():
         self.client = client
         self.container = container
         self.container_socket = None
+        self._server_disconnect_signal = False
+        self._server_disconnect_reason = ""
     
 
     def forward(self, *packets: Packet) -> None:
@@ -39,7 +41,8 @@ class Session():
         try:
             self.client.socket.setblocking(True)
             self.container_socket.setblocking(True)
-            while True:
+
+            while True and not self._server_disconnect_signal:
                 rlist, _, _ = select.select([self.client.socket, self.container_socket], [], [])
                 for sock in rlist:
                     if sock is self.client.socket:
@@ -81,29 +84,27 @@ class Session():
                                 rtt_sum += rtt
                                 rtt_count += 1
                             last_client_send = None
-                        
+
         except (ConnectionResetError, BrokenPipeError, OSError) as e:
             logger.error(f"{self.client} connection closed unexpectedly {e}")
         except Exception as e:
             logger.error(f"{self.client} forwarding error: {e}")
         finally:
             logger.info(f"{self.client} forwarding done")
+
             try:
                 self._disconnect()
             except Exception as e:
                 logger.error(f"failed to disconnect container, after forwarding: {e}")
             
-            try:
-                if rtt_count > 0:
-                    avg_ms = (rtt_sum / rtt_count) * 1000.0
-                    duration = time.monotonic() - sess_start
-                    logger.info(f"{self.client}: avg ping {avg_ms:.2f} ms over {rtt_count} samples (session {duration:.1f}s)")
-            except Exception:
-                pass
+            if rtt_count > 0:
+                avg_ms = (rtt_sum / rtt_count) * 1000.0
+                duration = time.monotonic() - sess_start
+                logger.info(f"{self.client}: avg ping {avg_ms:.2f} ms over {rtt_count} samples (session {duration:.1f}s)")
 
 
     def _connect(self) -> None:
-        """Create a connection to the container's port"""
+        """Connect the container's socket"""
         try:
         
             if not self.container.host.is_online():
@@ -115,11 +116,12 @@ class Session():
             attempts, wait_time = 3, 10
             for attempt in range(attempts):
                 if self._client_disconnected(0.0):
-                    raise RuntimeError("client disconnected")
+                    raise ConnectionAbortedError("client disconnected")
+
                 try:
-                
                     self.container_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     self.container_socket.connect((self.container.host.ip, self.container.port))
+                    
                     logger.info(f"{self.client} connected to {self.container.subdomain} on attempt {attempt + 1}")
                     return
                 
@@ -130,7 +132,6 @@ class Session():
                         raise RuntimeError("client disconnected")
 
             raise RuntimeError(f"connect failed after {attempts} attempts")
-        
         except Exception as e:                
             raise RuntimeError(f"failed to connect: {e}")
 
@@ -160,3 +161,9 @@ class Session():
             return False
         except Exception:
             return True
+        
+
+    def server_disconnect(self, reason: str) -> None:
+        self._server_disconnect_signal = True
+        self._server_disconnect_reason = reason
+

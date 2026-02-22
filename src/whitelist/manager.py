@@ -20,6 +20,6 @@ class WhitelistManager():
             return False
 
 
-    def dict(self) -> dict[str, dict[str, list[str]]]:
+    def dict(self) -> list[dict[str, list[str]]]:
         """Returns whitelist contents in JSON friendly format"""
         return self.storage.dict()

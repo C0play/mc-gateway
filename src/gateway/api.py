@@ -61,6 +61,7 @@ class API():
             "add-host": self._add_host,
             "remove-host": self._remove_host,
             "list": self._list,
+            "kick-all": self._kick_all,
         }
 
 
@@ -72,7 +73,11 @@ class API():
 
     def _status(self) -> APIResponse:
         with self.server._client_count_lock:
-            return API._assemble_res("OK", str(self.server._client_count))
+            return API._assemble_res(
+                "OK",
+                str(self.server._client_count) + " " + str(self.server._sessions.dict())
+            )
+        
 
 
     def _add_player(self, username: str, subdomain: str) -> APIResponse:
@@ -104,31 +109,50 @@ class API():
     
     def _remove_container(self, subdomain: str) -> APIResponse:
         try:
-            self.server._sessions.containers.storage.delete(subdomain)
+            self.server._sessions.interrupt("Your server has been removed", subdomain=subdomain)
+            self.server._sessions.containers.delete(subdomain)
         except Exception as e:
             return API._assemble_res("ERROR", f"container removal failed: {e}")
         else:
-            return API._assemble_res("ERROR", f"container {subdomain} removed")
+            return API._assemble_res("OK", f"container {subdomain} removed")
 
 
     def _add_host(self, ip: str, mac: str, user: str, path: str) -> APIResponse:
         try:
-            self.server._sessions.containers.hostManager.storage.add(ip, mac, user, path)
+            self.server._sessions.containers.hostManager.storage.create(ip, mac, user, path)
         except Exception as e:
             return API._assemble_res("ERROR", f"host addition failed: {e}")
         else:
-            return API._assemble_res("ERROR", f"added {ip} to hosts")
+            return API._assemble_res("OK", f"added {ip} to hosts")
 
 
     def _remove_host(self, ip: str) -> APIResponse:
         try:
-            self.server._sessions.containers.hostManager.storage.remove(ip)
+            self.server._sessions.interrupt("Your server has been removed", ip=ip)
+            self.server._sessions.containers.hostManager.delete(ip)
         except Exception as e:
-            return API._assemble_res("OK", f"host removal failed: {e}")
+            return API._assemble_res("ERROR", f"host removal failed: {e}")
         else:
             return API._assemble_res("OK", f"{ip} removed")
 
     
+    def _kick_all(self, ip: str = "", subdomain: str = "") -> APIResponse:
+        try:
+            if subdomain and ip:
+                raise ValueError("specify only a single argument")
+            
+            logger.debug(f"Kicking all from {ip}{subdomain}")
+            if subdomain:
+                self.server._sessions.interrupt("You were kicked", subdomain=subdomain)
+            elif ip:
+                self.server._sessions.interrupt("You were kicked", ip=ip)
+
+        except Exception as e:
+            return API._assemble_res("ERROR", f"kick failed: {e}")
+        else:
+            return API._assemble_res("OK", f"all players from {subdomain}{ip} were kicked")
+
+
     def _list(self) -> APIResponse:
         return API._assemble_res(
             "OK", 
@@ -146,7 +170,7 @@ class API():
 
 
 
-class TCPAdater():
+class TCPAdapter():
 
     def __init__(self, api: API) -> None:
         self.api = api

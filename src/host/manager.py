@@ -14,13 +14,18 @@ class BaseHostManager(ABC):
         self.storage = hostRepo
 
     @abstractmethod
-    def get(self, ip: str) -> BaseHost:
+    def load(self, ip: str) -> BaseHost:
         """Get an active host with specified ip, or create a new one."""
         ...
 
     @abstractmethod
-    def delete(self, ip: str) -> None:
+    def unload(self, ip: str) -> None:
         """Remove a host from active hosts."""
+        ...
+
+    @abstractmethod
+    def delete(self, ip: str) -> None:
+        """Remove a host from active hosts and storage."""
         ...
 
     def dict(self) -> dict[str, dict[str, str]]:
@@ -38,13 +43,13 @@ class SSHHostManager(BaseHostManager):
         self.active_hosts: dict[str, SSHHost] = {}
 
 
-    def get(self, ip: str) -> SSHHost:
+    def load(self, ip: str) -> SSHHost:
         with self.lock:
             if ip in self.active_hosts:
                 return self.active_hosts[ip]
             
             try:
-                mac, user, path = self.storage.get(ip)
+                mac, user, path = self.storage.read(ip)
             except:
                 logger.exception(f"failed to get {ip} host parameters from storage")
                 raise
@@ -53,21 +58,24 @@ class SSHHostManager(BaseHostManager):
                 self.active_hosts[ip] = host
                 return host
 
-    def add(self, ip: str, mac: str, user: str, path: str) -> None:
-        """Add a new host to storage."""
-        
-        self.storage.add(ip, mac, user, path)
 
-    def delete(self, ip: str) -> None:
+    def unload(self, ip: str) -> None:
         """Remove host from storage and active cache."""
-        self.storage.remove(ip)
         
+        logger.debug(f"Removing host {ip} from active list")
         with self.lock:
             if ip in self.active_hosts:
                 del self.active_hosts[ip]
+    
+    
+    def delete(self, ip: str) -> None:
+        """Remove host from storage and active cache."""
+        
+        self.unload(ip)
+        logger.debug(f"Removing host {ip} from storage")
+        self.storage.delete(ip)
             
             
-
     def dict(self) -> dict[str, dict[str, str]]:
         with self.lock:
             temp = self.active_hosts.values()

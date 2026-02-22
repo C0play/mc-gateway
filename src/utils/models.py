@@ -36,8 +36,13 @@ class Host(BaseModel):
 
 class Container(BaseModel):
     subdomain = pewe.CharField(max_length=4, unique=True, primary_key=True)
-    port = pewe.IntegerField(unique=True)
-    host = pewe.ForeignKeyField(Host, backref="containers", field='ip')
+    port = pewe.IntegerField()
+    host = pewe.ForeignKeyField(Host, backref="containers", field='ip', null=True, on_delete='SET NULL')
+
+    class Meta:
+        indexes = (
+            (('port', 'host'), True),
+        )
 
     def __str__(self):
         return f"{self.subdomain}:{self.port}"
@@ -46,9 +51,12 @@ class Container(BaseModel):
 
 class Whitelist(BaseModel):
     username = pewe.CharField(max_length=50)
-    container = pewe.ForeignKeyField(Container, backref="whitelist", field='subdomain')
+    container = pewe.ForeignKeyField(Container, backref="whitelist", field='subdomain', on_delete='CASCADE')
 
     class Meta:
         indexes = (
             (('username', 'container'), True),
         )
+
+    def __str__(self):
+        return f"{self.username}:{self.container}"

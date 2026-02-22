@@ -74,13 +74,13 @@ def read_String(sock: socket.socket) -> str:
     
 # ----- Encoding -----
 
-def write_String(msg: str) -> bytearray:
+def write_string(msg: str) -> bytearray:
     data = bytearray(msg, encoding="utf8")
-    msg_len = write_VarInt(len(data))
+    msg_len = write_varInt(len(data))
     return msg_len + data
 
 
-def write_VarInt(value: int) -> bytearray:
+def write_varInt(value: int) -> bytearray:
     val = value
     bytes = bytearray()
     while True:

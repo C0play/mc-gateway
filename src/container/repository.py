@@ -20,7 +20,7 @@ class BaseContainerRepository(ABC):
     
     @abstractmethod
     def read(self, subdomain: str) -> tuple[str, int]:
-        """Get the container with specified subdomain."""
+        """Get the ip and port of the container with specified subdomain."""
         ...
     
     @abstractmethod

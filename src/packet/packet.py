@@ -148,8 +148,8 @@ class Packet:
             msg_colour = colour if colour else "green"
             msg = f"""{{text: "{disconnect_msg}", color: "{msg_colour}"}}"""
             
-        packet_id = mct.write_VarInt(Login.clientbound.disconnect_login)
-        packet_data = mct.write_String(msg)
+        packet_id = mct.write_varInt(Login.clientbound.disconnect_login)
+        packet_data = mct.write_string(msg)
         return Packet._assemble_packet(packet_id, packet_data)
     
 
@@ -171,30 +171,30 @@ class Packet:
                     "enforcesSecureChat": "false"
                 }}"""
         
-        packet_id = mct.write_VarInt(Status.clientbound.status_response)
-        packet_data = mct.write_String(msg)
+        packet_id = mct.write_varInt(Status.clientbound.status_response)
+        packet_data = mct.write_string(msg)
         return Packet._assemble_packet(packet_id, packet_data)
     
 
     def _encode_pong_response(self) -> bytearray:
-        packet_id = mct.write_VarInt(Status.clientbound.pong_response)
+        packet_id = mct.write_varInt(Status.clientbound.pong_response)
         packet_data = mct.write_long(self.data[2])
         return Packet._assemble_packet(packet_id, packet_data)
    
    
     def _encode_login_handshake(self) -> bytearray:
-        packet_id = mct.write_VarInt(Null.serverbound.handshake)
-        proto_ver = mct.write_VarInt(self.data[2])
-        addr = mct.write_String(self.data[3])
+        packet_id = mct.write_varInt(Null.serverbound.handshake)
+        proto_ver = mct.write_varInt(self.data[2])
+        addr = mct.write_string(self.data[3])
         port = mct.write_u_short(self.data[4])
-        intent = mct.write_VarInt(self.data[5])
+        intent = mct.write_varInt(self.data[5])
         packet_data = proto_ver + addr + port + intent
         return Packet._assemble_packet(packet_id, packet_data)
 
 
     def _encode_login_start(self) -> bytearray:
-        packet_id = mct.write_VarInt(Login.serverbound.login_start)
-        name = mct.write_String(self.data[2])
+        packet_id = mct.write_varInt(Login.serverbound.login_start)
+        name = mct.write_string(self.data[2])
         uuid = mct.write_uuid(self.data[3])
         return Packet._assemble_packet(packet_id, name + uuid)
 
@@ -202,7 +202,7 @@ class Packet:
     @staticmethod
     def _assemble_packet(packet_id: bytearray, packet_data: bytearray) -> bytearray:
         packet_body = packet_id + packet_data
-        packet_len = mct.write_VarInt(len(packet_body))
+        packet_len = mct.write_varInt(len(packet_body))
         return  packet_len + packet_body
 
         

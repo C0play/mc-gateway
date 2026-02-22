@@ -49,5 +49,5 @@ class Client():
 
 
     def __str__(self) -> str:
-        return f"Client<{self.ip}, {self.port}>"
+        return f"Client<{self.ip}, {self.port}, {self.username}, {self.subdomain}>"
 
