@@ -81,8 +81,11 @@ class SQLContainerRepository(BaseContainerRepository):
     Implementation of storage using Peewee ORM.
     """
 
-    def __init__(self, keyGenerator: KeyGenerator) -> None:
-        super().__init__(keyGenerator)
+    def __init__(self, key_generator: KeyGenerator) -> None:
+        query = Container.select(Container.subdomain)
+        keys = [c.subdomain for c in query]
+        key_generator.load(keys)
+        super().__init__(key_generator)
         
          
     def create(self, ip: str, port: int) -> str:

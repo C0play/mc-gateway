@@ -1,11 +1,10 @@
 import secrets
-from .models import Container
 
 
 class KeyGenerator:
     """
     Generates unique, short, identifier strings (Crockford base32).
-    Ensures uniqueness by checking against existing subdomains in standard database mode.
+    Ensures uniqueness by checking against existing keys.
     """
 
     ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz"
@@ -14,7 +13,7 @@ class KeyGenerator:
 
     def __init__(self, length: int = 4) -> None:
         """
-        Initializes the generator. Loads existing keys from the Container table on first run.
+        Initializes the generator.
 
         Args:
             length: The length of the generated key.
@@ -23,15 +22,34 @@ class KeyGenerator:
             raise ValueError("length must be between 1 and 63")
         self.length = length
 
-        if not KeyGenerator._initialized:
-            query = Container.select(Container.subdomain)
-            for container in query:
-                KeyGenerator.keys.add(container.subdomain)
-            KeyGenerator._initialized = True
 
+    @classmethod
+    def load(cls, used_keys: list[str]) -> None:
+        """
+        Loads already used keys.
+
+        Args:
+            used_keys: Already used keys.
+        """
+        if not KeyGenerator._initialized:
+            for key in used_keys:
+                KeyGenerator.keys.add(key)
+            KeyGenerator._initialized = True
+        
 
     def gen(self) -> str:
-        """Generate a [length] character long string, in Crockford base32."""
+        """
+        Generate a `length` character long string, in Crockford base32.
+        
+        Returns:
+            key: Generated, unique key.
+
+        Raises:
+            RuntimeError: If KeyGenerator was not initialized.
+        """
+        
+        if not KeyGenerator._initialized:
+            raise RuntimeError(f"KeyGenerator is not initialized")
         
         while True:
             new = ''.join(secrets.choice(self.ALPHABET) for _ in range(self.length))
