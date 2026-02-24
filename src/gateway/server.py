@@ -1,6 +1,8 @@
 import socket
 import select
 import signal
+import uvicorn
+import logging
 import threading
 from subprocess import CalledProcessError 
 
@@ -12,7 +14,7 @@ from ..whitelist.manager import WhitelistManager
 from ..session.manager import SessionManager
 
 from .client import Client, State
-from .api import API, TCPAdapter
+from .api import API
 
 
 
@@ -39,55 +41,42 @@ class Server:
             
             self.config = config
             self._whitelist = whitelist
-            
             self._sessions = sessions
-            threading.Thread(target=sessions.autoshutdown, daemon=True).start()
-
+            
             self._client_count_lock = threading.Lock()
             self._client_count = 0
             
-            self.api = API(self)
-            self.cmd_handler = TCPAdapter(self.api)
-
             signal.signal(signal.SIGTERM, self._signal_handler)
             signal.signal(signal.SIGINT, self._signal_handler)
 
             try:
-                # minecraft socket
                 self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 self._server_socket.bind((self.config.server.ip, self.config.server.port))
                 self._server_socket.listen(self.config.server.max_clients)
             except Exception as e:
                 raise RuntimeError(f"Minecraft socket: {e}")
-            try:
-                # control socket
-                self._ctrl_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self._ctrl_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                self._ctrl_socket.bind((self.config.server.ip, self.config.server.control_port))
-                self._ctrl_socket.listen(1)
-            except Exception as e:
-                raise RuntimeError(f"Control socket: {e}")
             
-            logger.info(f"server listening at {self.config.server.ip}:{{mc:{self.config.server.port}, ctrl:{self.config.server.control_port}}}")
+            logger.info(f"server listening on {self.config.server.ip}:[mc:{self.config.server.port}, api:{self.config.server.control_port}]")
         
         except Exception as e:
             raise RuntimeError(f"Exception during server init: {e}")
     
-    
+
     def start(self) -> None:
         """
         Starts the main server loop, listening for incoming connections on both sockets.
         Handles graceful shutdown on signals.
         """
         try:
-            while not self._shutdown:
-                sockets = [self._server_socket, self._ctrl_socket]
-                readyl, _, _ = select.select(sockets, [], [])
+            threading.Thread(target=self._sessions.autoshutdown, daemon=True).start()
+            threading.Thread(target=self._run_api, daemon=True).start()
 
-                if self._ctrl_socket in readyl:
-                    self._handle_ctrl_socket()                    
-                elif self._server_socket in readyl and not self._shutdown:
+            while not self._shutdown:
+                sockets = [self._server_socket]
+                readyl, _, _ = select.select(sockets, [], [], 1.0) 
+
+                if self._server_socket in readyl and not self._shutdown:
                     self._handle_mc_socket()
 
         except Exception as e:
@@ -95,28 +84,31 @@ class Server:
         finally:
             logger.info(f"cleaning resources")
             try:
-                self._ctrl_socket.close()
-            except Exception as e:
-                logger.error(f"closing ctrl_socket: {e}")
-            try:
                 self._server_socket.close()
             except Exception as e:
                 logger.error(f"closing mc_socket: {e}")
             logger.info("Server stopped")
 
 
-    def _handle_ctrl_socket(self):
-        """Accepts a connection on the control socket and starts a thread to handle commands."""
+    def _run_api(self):
+        """Runs the uvicorn API server in a thread with custom logging configuration."""
+
+        # Disable all uvicorn loggers
+        for log_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+            log = logging.getLogger(log_name)
+            log.disabled = True
         
-        control_sock, _ = self._ctrl_socket.accept()
-        try:
-            threading.Thread(target=self.cmd_handler.handle, daemon=True, args=(control_sock,)).start()
-        except Exception as e:
-            logger.error(f"control socket: {e}")
+        uvicorn.run(
+            API(self).app,
+            host=self.config.server.ip,
+            port=self.config.server.control_port,
+            log_config=None,
+            access_log=False 
+        )
 
 
     def _handle_mc_socket(self):
-        """Accepts a connection on the Minecraft socket, initializes a Client instance and
+        """Accepts a connection on the Minecraft socket, creates a Client instance and
         starts a thread to handle the connection.
         """
 
@@ -128,12 +120,12 @@ class Server:
             logger.info(f"new {client}, total: {self._client_count}")
 
         try:
-            threading.Thread(target=self.handle_client, daemon=True, args=(client,)).start()
+            threading.Thread(target=self._handle_client, daemon=True, args=(client,)).start()
         except Exception as e:
             logger.error(f"client handling: {e}")
 
 
-    def handle_client(self, client: Client) -> None:
+    def _handle_client(self, client: Client) -> None:
         try:
             handshake = Packet(client).read()
             self._process_handshake(client, handshake)
@@ -145,7 +137,7 @@ class Server:
             else:
                 raise ValueError(f"")
             
-        except NotImplementedError as e:
+        except (NotImplementedError, ConnectionError) as e:
             logger.warning(f"{client}: {e}")
         except Exception as e:
             logger.error(f"{client}: {e}")
@@ -195,7 +187,7 @@ class Server:
                     ping_req.respond()
 
             
-        except (ConnectionResetError, BrokenPipeError, OSError) as e:
+        except (ConnectionError, ConnectionResetError, BrokenPipeError, OSError) as e:
             logger.warning(f"{client} disconnected during status")
         except NotImplementedError as e:
             logger.warning(f"{client} {e}")
@@ -215,7 +207,7 @@ class Server:
                 username = login_start.data[2]
 
                 if not self._whitelist.validate(username = username, subdomain = subdomain):
-                    logger.warning(f"{client} unknown player tried logging in: {(username, login_start.data[3])}")
+                    logger.warning(f"{client} unknown player tried logging in: {(username, subdomain)}")
                     return
                 
                 client.username = username
@@ -226,7 +218,7 @@ class Server:
             logger.warning(f"{client} {e}")
         except (CalledProcessError) as e:
             logger.error(f"{client} subprocess command failed {e}")
-        except (ConnectionResetError, BrokenPipeError) as e:
+        except (ConnectionError, ConnectionResetError, BrokenPipeError) as e:
             logger.warning(f"{client} disconnected during login")
         except Exception as e:
             raise RuntimeError(f"{client} login: {e}")
@@ -269,11 +261,15 @@ class Server:
             self._sessions.close(client)
 
 
-    def _signal_handler(self, signum, _):
-        logger.info(f"received: {signum}. Closing...")
+    def get_client_count(self) -> int:
+        with self._client_count_lock:
+            return self._client_count
+
+
+    def _init_shutdown(self, reason: str) -> None:
         self._shutdown = True
-        try:
-            with socket.create_connection(("127.0.0.1", self.config.server.control_port), timeout=0.2) as s:
-                s.sendall(b"stop")
-        except Exception:
-            pass
+        logger.info(f"shutting down: {reason}")
+
+
+    def _signal_handler(self, signum, _):
+        self._init_shutdown(f"received: {signum}")

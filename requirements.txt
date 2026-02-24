@@ -1,2 +1,6 @@
+fastapi
+pydantic
+pydantic_extra_types
+uvicorn
 peewee
 psycopg2-binary

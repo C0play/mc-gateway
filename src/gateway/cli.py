@@ -1,8 +1,8 @@
 import argparse
 import json
-import socket
+import urllib.request
+import urllib.error
 import sys
-
 
 
 def _handle_error(error_message: str):
@@ -10,14 +10,12 @@ def _handle_error(error_message: str):
     Helper for printing error and logging it.
 
     Args:
-        full_cmd: The command dictionary that caused the error.
         error_message: The error description.
 
     Returns:
         int: Always returns 1 (error exit code).
     """
-    
-    print(f"ERROR: {error_message}")
+    print(f"ERROR: {error_message}", file=sys.stderr)
     return 1
 
 
@@ -28,53 +26,74 @@ def _print_response(data):
     Args:
         data: The data dictionary or string to print.
     """
-
     if isinstance(data, str):
         print(f"{data}")
     else:
         print(json.dumps(data, indent=3))
 
 
-
-def send_request(ip: str, port: int, command: str, kwargs: dict[str, str] = {}):
+def send_request(ip: str, port: int, method: str, endpoint: str, payload: dict  = {}):
     """
-    Encapsulates sending a command to the server socket and handling the response.
+    Encapsulates sending an HTTP request to the server API.
 
     Args:
         ip: The IP to connect to.
         port: The port to connect to.
-        command: The command name.
-        kwargs: Dictionary of arguments for the command.
+        method: HTTP method (GET, POST, DELETE).
+        endpoint: API endpoint (e.g. "/status").
+        payload: Dictionary of arguments for the command (body).
     
     Returns:
         int: 0 on success, 1 on failure.
     """
-
-    full_cmd = {"cmd_name": command, "kwargs": kwargs }
+    url = f"http://{ip}:{port}{endpoint}"
+    data = None
+    headers = {"Content-Type": "application/json"}
     
+    if payload:
+        data = json.dumps(payload).encode("utf-8") 
+
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+
     try:
-        with socket.create_connection((ip, port), timeout=3.0) as sock:
-            print(f"SEND: {full_cmd}")
-            sock.sendall(json.dumps(full_cmd).encode())
-
-            response_data = sock.recv(4096).decode()
-            if not response_data:
-                return _handle_error("Empty response from server")
+        with urllib.request.urlopen(req, timeout=5.0) as response:
+            if response.status != 200:
+                return _handle_error(f"HTTP {response.status}: {response.reason}")
             
-            try:
-                response = json.loads(response_data)
-            except json.JSONDecodeError:
-                return _handle_error(f"Invalid JSON response: {response_data}")
-
-            if response.get("code") == "OK":
-                _print_response(response.get("data"))
-                print(f"OK: {full_cmd}")
-                return 0
+            if body := response.read().decode():
+                try:
+                    _print_response(json.loads(body))
+                except json.JSONDecodeError:
+                        print(body)
             else:
-                return _handle_error(response.get('data', 'Unknown error'))
+                print("OK")
+            return 0
 
-    except (ConnectionRefusedError, TimeoutError, OSError):
-        return _handle_error("server is not running or not accessible")
+    except urllib.error.HTTPError as e:
+        try:
+            err_body = e.read().decode()
+            err_json = json.loads(err_body)
+            detail = err_json.get("detail", str(e))
+            
+            if isinstance(detail, list):
+                formatted_errors = []
+                for err in detail:
+                    if isinstance(err, dict):
+                        loc = ".".join(str(l) for l in err.get("loc", []))
+                        msg = err.get("msg", "Unknown error")
+                        formatted_errors.append(f"- {loc}: {msg}")
+                    else:
+                        formatted_errors.append(f"- {str(err)}")
+                
+                if formatted_errors:
+                    detail = "\n" + "\n".join(formatted_errors)
+        except:
+            detail = str(e)
+
+        return _handle_error(f"Request failed: {detail}")
+    
+    except (urllib.error.URLError, ConnectionRefusedError, TimeoutError, OSError) as e:
+        return _handle_error(f"Server is not running or not accessible: {e}")
     except Exception as e:
         return _handle_error(str(e))
 
@@ -94,14 +113,14 @@ def send_cmd(argv: list[str]) -> int:
     parser_stop = subparsers.add_parser("stop", help="Stop the server")
     parser_stop.set_defaults(
         func=lambda args: (
-            "stop", {}
+            "POST", "/stop", {}
     ))
 
     # status
     parser_status = subparsers.add_parser("status", help="Get server status")
     parser_status.set_defaults(
         func=lambda args: (
-            "status", {}
+            "GET", "/status", {}
     ))
 
     # list
@@ -109,8 +128,7 @@ def send_cmd(argv: list[str]) -> int:
     list_parser.add_argument("-r", help="Resource to list", choices=("players", "containers", "hosts"), required=True)
     list_parser.set_defaults(
         func=lambda args: (
-            "list",
-            {"resource": args.r}
+            "GET", f"/list/{args.r}", {}
     ))
 
     # Player commands group
@@ -123,7 +141,7 @@ def send_cmd(argv: list[str]) -> int:
     parser_add_player.add_argument("subdomain", help="Server subdomain")
     parser_add_player.set_defaults(
         func=lambda args: (
-            "add-player",
+            "POST", "/player/add",
             {"username": args.name, "subdomain": args.subdomain}
     ))
 
@@ -133,7 +151,7 @@ def send_cmd(argv: list[str]) -> int:
     parser_remove_player.add_argument("subdomain", help="Server subdomain")
     parser_remove_player.set_defaults(
         func=lambda args: (
-            "remove-player",
+            "DELETE", "/player/remove",
             {"username": args.name, "subdomain": args.subdomain}
     ))
 
@@ -147,8 +165,8 @@ def send_cmd(argv: list[str]) -> int:
     parser_add_container.add_argument("port", type=int, help="Container port")
     parser_add_container.set_defaults(
         func=lambda args: (
-            "add-container",
-            {"ip": args.ip, "port": str(args.port)}
+            "POST", "/container/add",
+            {"ip": args.ip, "port": args.port}
     ))
 
     # container remove <subdomain>
@@ -156,7 +174,7 @@ def send_cmd(argv: list[str]) -> int:
     parser_remove_container.add_argument("subdomain", help="Container subdomain")
     parser_remove_container.set_defaults(
         func=lambda args: (
-            "remove-container",
+            "DELETE", "/container/remove",
             {"subdomain": args.subdomain}
     ))
 
@@ -165,7 +183,7 @@ def send_cmd(argv: list[str]) -> int:
     parser_kickall_container.add_argument("subdomain", help="Container subdomain")
     parser_kickall_container.set_defaults(
         func=lambda args: (
-            "kick-all",
+            "POST", "/kick",
             {"subdomain": args.subdomain}
     ))
 
@@ -181,7 +199,7 @@ def send_cmd(argv: list[str]) -> int:
     parser_add_host.add_argument("path", help="Path on host")
     parser_add_host.set_defaults(
         func=lambda args: (
-            "add-host",
+            "POST", "/host/add",
             {"ip": args.ip, "mac": args.mac, "user": args.user, "path": args.path}
     ))
 
@@ -190,7 +208,7 @@ def send_cmd(argv: list[str]) -> int:
     parser_remove_host.add_argument("ip", help="Host IP address")
     parser_remove_host.set_defaults(
         func=lambda args: (
-            "remove-host",
+            "DELETE", "/host/remove",
             {"ip": args.ip}
     ))
     
@@ -199,7 +217,7 @@ def send_cmd(argv: list[str]) -> int:
     parser_kickall_host.add_argument("ip", help="Host IP address")
     parser_kickall_host.set_defaults(
         func=lambda args: (
-            "kick-all",
+            "POST", "/kick",
             {"ip": args.ip}
     ))
 
@@ -208,8 +226,8 @@ def send_cmd(argv: list[str]) -> int:
 
     # Execute the handler function mapped to the command
     if hasattr(args, "func"):
-        command_name, socket_args = args.func(args)
-        return send_request(args.ip, args.port, command_name, socket_args)
+        method, endpoint, payload = args.func(args)
+        return send_request(args.ip, args.port, method, endpoint, payload)
     else:
         print(f"ERROR: No handler for command {args.command}")
         return 1

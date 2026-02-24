@@ -1,28 +1,143 @@
-import json
-import inspect
-from socket import socket
 from typing import (
-    TypedDict,
-    TypeAlias,
-    Mapping,
-    Sequence,
-    Callable,
+    Literal,
     TYPE_CHECKING,
 )
+import re
+from functools import wraps
+from ipaddress import ip_address
+from pathlib import Path
+
+from pydantic import BaseModel, Field, field_validator, IPvAnyAddress
+from pydantic_extra_types.mac_address import MacAddress
+from fastapi import FastAPI, HTTPException, Request
+from fastapi import status as HTTPstatus
+
 
 from ..utils.logger import logger
 if TYPE_CHECKING:
     from .server import Server
 
 
-JSON: TypeAlias = Mapping[str, "JSON"] | Sequence["JSON"] | str
-class APIResponse(TypedDict):
-    code: str
-    data: JSON
+# ======================================== PLAYER MODELS ========================================
+class PlayerID(BaseModel):
+    username: str = Field(..., max_length=50, description="Username of the player")
+    subdomain: str = Field(..., min_length=4, max_length=4, description="Server subdomain assigned to the player")
 
 
+class PlayerData(PlayerID):
+    pass
 
-class API(): 
+
+class OptPlayerData(PlayerID):
+    pass
+
+
+# ======================================== HOST MODELS ========================================
+class HostID(BaseModel):
+    ip: IPvAnyAddress = Field(..., description="IP address of the host machine")
+
+
+class HostData(HostID):
+    mac: MacAddress = Field(..., description="MAC address of the host machine")
+    user: str = Field(..., max_length=50, description="User of the host machine")
+    path: Path = Field(..., description="Path to the directory containing all minecraft server directories")
+
+    @field_validator('user')
+    @classmethod
+    def validate_user(cls, v: str) -> str:
+        pattern = r"^[a-z_][a-z0-9_-]*$"
+        if not re.match(pattern, v):
+            raise ValueError('Invalid Linux username')
+        return v
+
+    @field_validator('path')
+    @classmethod
+    def validate_path(cls, v: Path) -> Path:
+         if not v.is_absolute():
+            raise ValueError('Path must be absolute')
+         
+         # Basic sanitization check for path traversal or dangerous characters
+         # Allow alphanumeric, /, _, -, .
+         s = str(v)
+         pattern = r"^/[\w\-\./]+$"
+         if not re.match(pattern, s) or '..' in s:
+              raise ValueError('Invalid path format or characters')
+         return v
+
+class OptHostData(HostID):
+    mac: str | None = Field(None, min_length=17, max_length=17, description="MAC address of the host machine")
+    user: str | None = Field(None, max_length=50, description="User of the host machine")
+    path: Path | None = Field(None, description="Path to the directory containing all minecraft server directories")
+
+
+# ======================================== CONTAINER MODELS ========================================
+class ContainerID(BaseModel):
+    subdomain: str = Field(..., min_length=4, max_length=4, description="Subdomain assigned to the container")
+
+
+class ContainerData(BaseModel):
+    ip: str = Field(..., min_length=7, max_length=15, description="IP address of the host machine assigned to the container")
+    port: int = Field(..., description="Port of the host machine assigned to the container")
+
+
+class OptContainerData(ContainerID):
+    host_ip: str | None = Field(None, min_length=7, max_length=15, description="IP address of the host machine assigned to the container")
+    host_port: int | None = Field(None, description="Port of the host machine assigned to the container")
+
+
+class FullContainer(ContainerID, ContainerData):
+    pass
+
+
+# ======================================== RESPONSE MODELS ========================================
+class ListResponse(BaseModel):
+    data: list[PlayerData] | list[FullContainer] | list[HostData] = Field(
+        ...,
+        description="List of requested resources"
+    )
+
+
+class KickRequest(BaseModel):
+    ip: str | None = Field(None, min_length=7, max_length=15, description="IP of the host to kick all players safely from")
+    subdomain: str | None = Field(None, min_length=4, max_length=4, description="Subdomain of the container to kick all players from")
+
+
+class StatusResponse(BaseModel):
+    clients: str
+    sessions: list
+    containers: list
+    hosts: list
+
+
+class MessageResponse(BaseModel):
+    message: str
+
+
+# ======================================== HELPERS ========================================
+def handle_errors(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        operation = func.__name__.replace("_", " ")
+        try:
+            return func(*args, **kwargs)
+        except (KeyError, ValueError) as e:
+            logger.info(f"API: invalid request ({operation}): {e}")
+            raise HTTPException(
+                status_code=HTTPstatus.HTTP_400_BAD_REQUEST,
+                detail=str(e)
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"API: failed to {operation}: {e}")
+            raise HTTPException(
+                status_code=HTTPstatus.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    return wrapper
+
+
+# ======================================== FastAPI ========================================
+class API:
     """
     Handles command execution for the gateway server via the control interface.
     """
@@ -35,222 +150,124 @@ class API():
             server: The server instance to control.
         """
         self.server = server
-        self.commands: dict[str, Callable[..., APIResponse]] = self._register_commands()
-
-
-    def execute(self, cmd_name: str, **kwargs) -> APIResponse:
-        """
-        Executes a command by name, automatically validating arguments against the handler's signature.
-
-        Args:
-            cmd_name: The name of the command to execute.
-            **kwargs: Arguments to pass to the command handler.
-
-        Returns:
-            APIResponse: The result of the command execution or an error message.
-        """
-
-        handler = self.commands.get(cmd_name)
-        if not handler:
-            return API._assemble_res("ERROR", f"unknown command '{cmd_name}'")
+        self.app = FastAPI(title="mc-gateway API")
         
-        try:
-            sig = inspect.signature(handler)
-            bound_args = sig.bind(**kwargs)
-            bound_args.apply_defaults()
+        self._register()
+    
+
+
+    def _register(self) -> None:
+        
+        @self.app.middleware("http")
+        async def log_requests(request: Request, call_next):
+            client_ip = request.client.host if request.client else "unknown"
+            try:
+                response = await call_next(request)
+                
+                if request.url.path not in ("/status", "/favicon.ico"):
+                    logger.info(f"API: {request.method:<7} {request.url.path} from {client_ip} : {response.status_code}")
+                
+                return response
+            except Exception as e:
+                logger.error(f"API: error processing {request.url.path}: {e}")
+                raise e
+
+
+        @self.app.post("/player/add", response_model=PlayerData)
+        @handle_errors
+        def add_player(player: PlayerData):
+            self.server._whitelist.storage.create(player.username, player.subdomain)
+            return PlayerData(username=player.username, subdomain=player.subdomain)
+        
+
+        @self.app.delete("/player/remove", response_model=PlayerID)
+        @handle_errors
+        def remove_player(player: PlayerID):
+            self.server._whitelist.storage.delete(player.username, player.subdomain)
+            return player
+
+
+        @self.app.post("/container/add", response_model=FullContainer)
+        @handle_errors
+        def add_container(container: ContainerData):
+            subd = self.server._sessions.containers.storage.create(container.ip, container.port)
+            return FullContainer(subdomain=subd, **container.model_dump())
+
+
+        @self.app.delete("/container/remove", response_model=ContainerID)
+        @handle_errors
+        def remove_container(container: ContainerID):
+            self.server._sessions.interrupt("Your server has been removed", subdomain=container.subdomain)
+            self.server._sessions.containers.delete(container.subdomain)
+            return container
+
+
+        @self.app.post("/host/add", response_model=HostData)
+        @handle_errors
+        def add_host(host: HostData):
+            self.server._sessions.containers.hostManager.storage.create(
+                str(host.ip), str(host.mac), host.user, str(host.path)
+            )
+            return host
+
+
+        @self.app.delete("/host/remove", response_model=HostID)
+        @handle_errors
+        def remove_host(host: HostID):
+            self.server._sessions.interrupt("Your server has been removed", ip=str(host.ip))
+            self.server._sessions.containers.hostManager.delete(str(host.ip))
+            return host
+
+
+
+        @self.app.post("/kick", response_model=MessageResponse)
+        @handle_errors
+        def kick_all(target: KickRequest):
+            if bool(target.ip) == bool(target.subdomain):
+                raise ValueError("specify precisely a single argument (ip OR subdomain)")
             
-            return handler(*bound_args.args, **bound_args.kwargs)
-
-        except TypeError as e:
-            return API._assemble_res("ERROR", f"invalid arguments: {e}")
-        except Exception as e:
-            return API._assemble_res("ERROR", f"execution failed: {e}")
+            self.server._sessions.interrupt(subdomain=target.subdomain or "", ip=target.ip or "")
+            return MessageResponse(message=f"all players from {target.subdomain}{target.ip} kicked")
 
 
-    def _register_commands(self) -> dict[str, Callable[..., APIResponse]]:
-        return {
-            "stop": self._stop,
-            "status": self._status,
-            "add-player": self._add_player,
-            "remove-player": self._remove_player,
-            "add-container": self._add_container,
-            "remove-container": self._remove_container,
-            "add-host": self._add_host,
-            "remove-host": self._remove_host,
-            "list": self._list,
-            "kick-all": self._kick_all,
-        }
-
-
-    @staticmethod
-    def _response(
-            function: Callable[..., dict[str, str] | tuple | None],
-            success_msg: str, error_msg: str 
-    ) -> APIResponse:
-        try:
-            res = function()
-        except ValueError as e:
-            return API._assemble_res("ERROR", f"invalid arguments: {e}")
-        except Exception as e:
-            return API._assemble_res("ERROR", error_msg.format(e=e))
-        else:
-            kwargs = res if isinstance(res, dict) else {}
-            return API._assemble_res("OK", success_msg.format(**kwargs))
-
-
-    @staticmethod
-    def _assemble_res(code: str, data: JSON) -> APIResponse:
-        return APIResponse(code=code, data=data)
-
-
-    def _stop(self) -> APIResponse:
-        return API._response(
-            lambda: (self.server._init_shutdown("API request")),
-            "shutdown initiated",
-            "shutdown failed"
-        )
-        
-
-    def _add_player(self, username: str, subdomain: str) -> APIResponse:
-        return API._response(
-            lambda: self.server._whitelist.storage.create(username, subdomain),
-            f"player {username} added to {subdomain}",
-            "player addition failed: {e}",
-        )
-
-
-    def _remove_player(self, username: str, subdomain: str) -> APIResponse:
-        return API._response(
-            lambda: self.server._whitelist.storage.delete(username, subdomain),
-            f"player {username} removed from {subdomain}",
-            "player removal failed: {e}",
-        )
-    
-    
-    def _add_container(self, ip: str, port: int) -> APIResponse:
-        return API._response(
-            lambda: {"subd": self.server._sessions.containers.storage.create(ip, int(port))},
-            "container {ip}:{port} received {subd}",
-            "container addition failed: {e}",
-        )
-    
-    
-    def _remove_container(self, subdomain: str) -> APIResponse:
-        return API._response(
-            lambda: (
-                self.server._sessions.interrupt("Your server has been removed", subdomain=subdomain),
-                self.server._sessions.containers.delete(subdomain)),
-            f"container {subdomain} removed",
-            "container removal failed: {e}",
-        )
-
-
-    def _add_host(self, ip: str, mac: str, user: str, path: str) -> APIResponse:
-        return API._response(
-            lambda: self.server._sessions.containers.hostManager.storage.create(ip, mac, user, path),
-            "added {ip} to hosts",
-            "host addition failed: {e}",
-        )
-
-
-    def _remove_host(self, ip: str) -> APIResponse:
-        return API._response(
-            lambda: (self.server._sessions.interrupt("Your server has been removed", ip=ip),
-                self.server._sessions.containers.hostManager.delete(ip)),
-            f"{ip} removed",
-            "host removal failed: {e}",
-        )
-
-    
-    def _kick_all(self, ip: str = "", subdomain: str = "") -> APIResponse:
-        
-        def kick_logic():
-            if bool(ip) == bool(subdomain):
-                raise ValueError("specify precisely a single argument")
-            self.server._sessions.interrupt(subdomain=subdomain, ip=ip)
-            
-        return API._response(
-            kick_logic,
-            "kick failed: {e}",
-            f"all players from {subdomain}{ip} learned how to fly"
-        )
-
-
-    def _list(self, resource: str) -> APIResponse:
-        lst = None
-        match resource:
-            case "players":
-                lst = self.server._whitelist.storage.list()
-            case "containers":
-                lst = self.server._sessions.containers.storage.list()
-            case "hosts":
-                lst = self.server._sessions.containers.hostManager.storage.list()
-            case _:
-                lst = []
-
-        return API._assemble_res("OK", lst)
-    
-
-    def _status(self) -> APIResponse:
-        with self.server._client_count_lock:
-            return API._assemble_res(
-                "OK",
-                {
-                    "clients": str(self.server._client_count),
-                    "sessions": self.server._sessions.list(),
-                    "containers": self.server._sessions.containers.list(),
-                    "hosts": self.server._sessions.containers.hostManager.list(),
-                }
+        @self.app.get("/status", response_model=StatusResponse)
+        @handle_errors
+        def status():
+            return StatusResponse(
+                clients=str(self.server.get_client_count()), 
+                sessions=self.server._sessions.list(),
+                containers=self.server._sessions.containers.list(), 
+                hosts=self.server._sessions.containers.hostManager.list(),
             )
 
-
-
-class TCPAdapter():
-    """
-    Adapts a TCP socket connection to the API class, handling JSON parsing and response sending.
-    """
-
-    def __init__(self, api: API) -> None:
-        """
-        Initializes the adapter.
-
-        Args:
-            api: The API instance to execute commands on.
-        """
-        self.api = api
-
-
-    def handle(self, socket: socket) -> None:
-        """
-        Reads a command from the socket and executes it via API.
-
-        Args:
-            socket: Socket to receive commands from
-        """
-        try:
-            data = json.loads(socket.recv(1024).decode())
-            if not data:
-                return
-
-            name = data.get("cmd_name")
-            kwargs = data.get("kwargs", {})
             
-            resp = self.api.execute(name, **kwargs)
 
-        except Exception as e:
-            resp = API._assemble_res("ERROR", str(e))
-            name = "unknown"
+        @self.app.get("/list/{resource}", response_model=ListResponse)
+        @handle_errors
+        def list(resource: Literal["players", "hosts", "containers"]):
+            lst = []
+            match resource:
+                case "players":
+                    query = self.server._whitelist.storage.list()
+                    lst = [PlayerData(**row) for row in query]
+                case "containers":
+                    query = self.server._sessions.containers.storage.list()
+                    lst = [FullContainer(**{
+                            **row,
+                            "port": int(row["port"])
+                        }) for row in query]
+                case "hosts":
+                    query = self.server._sessions.containers.hostManager.storage.list()
+                    lst = [HostData(**{
+                        **row,
+                        "ip": ip_address(row["ip"]),
+                        "mac": MacAddress(row["mac"]),
+                        "path": Path(row["path"])
+                        }) for row in query]
+            return ListResponse(data=lst)
+            
         
-        # Logging
-        if name and name != "status":
-            if resp.get("code") == "OK":
-                logger.info(f"handle_cmd OK: {name}")
-            else:
-                logger.error(f"handle_cmd {name} -> {resp.get('data')}")
-
-        try:
-            socket.sendall(json.dumps(resp).encode())
-        except Exception:
-            pass
-        finally:
-            socket.close()
+        @self.app.post("/stop", response_model=MessageResponse)
+        def stop():
+            self.server._init_shutdown("API request")
+            return MessageResponse(message="shutdown initiated")        
