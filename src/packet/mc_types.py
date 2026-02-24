@@ -58,7 +58,7 @@ def read_VarInt(sock: socket.socket) -> int:
     except BufferError:
         raise BufferError(f"no data received after continuation bit")
     except (ConnectionResetError, BrokenPipeError, OSError) as e:
-        raise RuntimeError(f"connection closed while reading VarInt: {e}")
+        raise ConnectionError(f"connection closed while reading VarInt: {e}")
     except Exception as e:
         raise RuntimeError(f"read_VarInt failed: {e}")
 
@@ -78,7 +78,7 @@ def read_String(sock: socket.socket) -> str:
     except UnicodeDecodeError as e:
         raise RuntimeError(f"invalid UTF-8 data: {e}")
     except (ConnectionResetError, BrokenPipeError, OSError) as e:
-        raise RuntimeError(f"connection closed while reading string: {e}")
+        raise ConnectionError(f"connection closed while reading string: {e}")
     except Exception as e:
         raise RuntimeError(f"read_String failed: {e}")
 

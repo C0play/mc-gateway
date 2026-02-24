@@ -67,18 +67,18 @@ class BaseWhitelistRepository(ABC):
         """
         ...
     
-    def list(self) -> list[dict[str, list[str]]]:
+    def list(self) -> list[dict[str, str]]:
         """
         Returns the contents of the whitelist in a JSON-friendly format.
 
         Returns:
-             list[dict[str, list[str]]]: List of user-subdomains mappings.
+             list[dict[str, str]]: List of user-subdomains mappings.
         """
         ...
 
 
 
-class WhitelistRepository(BaseWhitelistRepository):
+class SQLWhitelistRepository(BaseWhitelistRepository):
     """
     Implementation of whitelist storage using Peewee ORM.
     """
@@ -139,16 +139,16 @@ class WhitelistRepository(BaseWhitelistRepository):
             raise KeyError(f"player {username} does not exist or is not whitelisted on {subdomain}")
 
 
-    def list(self) -> list[dict[str, list[str]]]:
-        query = (Whitelist
-                .select(
-                    Whitelist.username,
-                    fn.array_agg(Whitelist.container).alias('subdomains')
-                )
-                .group_by(Whitelist.username))
-        
+    def list(self) -> list[dict[str, str]]:
+        # query = (Whitelist
+        #         .select(
+        #             Whitelist.username,
+        #             fn.array_agg(Whitelist.container).alias('subdomains')
+        #         )
+        #         .group_by(Whitelist.username))
+        query = Whitelist.select()
         return [{
             "username": row.username,
-            "subdomains": list(row.subdomains)
+            "subdomain": row.container.subdomain
             } for row in query
         ]

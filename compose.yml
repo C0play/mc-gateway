@@ -10,6 +10,7 @@ services:
       - .env
     environment:
       - PYTHONUNBUFFERED=1
+      - CONT_IDLE_SEC=300
       - LOG_LEVEL=INFO
       - CTRL_PORT=25566
       - SERVER_PORT=25567

@@ -106,7 +106,7 @@ class SessionManager(BaseSessionManager):
             return session
 
 
-    def interrupt(self, reason: str, subdomain: str = "", ip: str = "") -> None:
+    def interrupt(self, reason: str = "You were kicked", subdomain: str = "", ip: str = "") -> None:
 
         if not (subdomain or ip):
             logger.error(f"ip and subdomain")

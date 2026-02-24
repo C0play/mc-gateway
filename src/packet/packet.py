@@ -91,9 +91,9 @@ class Packet:
             
             return self
                 
-        except NotImplementedError as e:
+        except (NotImplementedError, ConnectionError):
             self.data = []
-            raise e 
+            raise
         except Exception as e:
             self.data = []
             raise RuntimeError(f"failed to read packet: {e}")

@@ -63,7 +63,7 @@ class BaseHostRepository(ABC):
 
 
 
-class HostRepository(BaseHostRepository):
+class SQLHostRepository(BaseHostRepository):
     """
     Implementation of host storage using Peewee ORM.
     """

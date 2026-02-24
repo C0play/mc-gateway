@@ -4,13 +4,13 @@ from ..utils.logger import logger
 from ..utils.keygen import KeyGenerator
 
 from ..whitelist.manager import WhitelistManager
-from ..whitelist.repository import WhitelistRepository
+from ..whitelist.repository import SQLWhitelistRepository
 
 from ..container.manager import ContainerManager
 from ..container.repository import SQLContainerRepository
 
 from ..host.manager import SSHHostManager
-from ..host.repository import HostRepository
+from ..host.repository import SQLHostRepository
 
 from ..session.manager import SessionManager
 
@@ -21,19 +21,17 @@ from .server import Server
 def main():
     try:
         cfg = load_config()
-        hosts = SSHHostManager(
-            HostRepository()
-        )
 
+        hosts = SSHHostManager(
+            SQLHostRepository()
+        )
         containers = ContainerManager(
             SQLContainerRepository(KeyGenerator()),
             hosts
         )
-        
         whitelist = WhitelistManager(
-            WhitelistRepository()
+            SQLWhitelistRepository()
         )
-
         sessions = SessionManager(
             containers,
             cfg.shutdown
