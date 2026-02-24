@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from .server import Server
 
 
-
 JSON: TypeAlias = Mapping[str, "JSON"] | Sequence["JSON"] | str
 class APIResponse(TypedDict):
     code: str
@@ -83,82 +82,98 @@ class API():
         }
 
 
+    @staticmethod
+    def _response(
+            function: Callable[..., dict[str, str] | tuple | None],
+            success_msg: str, error_msg: str 
+    ) -> APIResponse:
+        try:
+            res = function()
+        except ValueError as e:
+            return API._assemble_res("ERROR", f"invalid arguments: {e}")
+        except Exception as e:
+            return API._assemble_res("ERROR", error_msg.format(e=e))
+        else:
+            kwargs = res if isinstance(res, dict) else {}
+            return API._assemble_res("OK", success_msg.format(**kwargs))
+
+
+    @staticmethod
+    def _assemble_res(code: str, data: JSON) -> APIResponse:
+        return APIResponse(code=code, data=data)
+
 
     def _stop(self) -> APIResponse:
-        self.server._shutdown = True
-        return API._assemble_res("OK", "shutdown initiated")
-    
+        return API._response(
+            lambda: (self.server._init_shutdown("API request")),
+            "shutdown initiated",
+            "shutdown failed"
+        )
+        
 
     def _add_player(self, username: str, subdomain: str) -> APIResponse:
-        try:
-            self.server._whitelist.storage.create(username, subdomain)
-        except Exception as e:
-            return API._assemble_res("ERROR", f"player addition failed: {e}")
-        else:
-           return API._assemble_res("OK", f"player {username} added to {subdomain}")
+        return API._response(
+            lambda: self.server._whitelist.storage.create(username, subdomain),
+            f"player {username} added to {subdomain}",
+            "player addition failed: {e}",
+        )
 
 
     def _remove_player(self, username: str, subdomain: str) -> APIResponse:
-        try:
-            self.server._whitelist.storage.delete(username, subdomain)
-        except Exception as e:
-            return API._assemble_res("ERROR", f"player removal failed: {e}")
-        else:
-            return API._assemble_res("OK", f"player {username} removed from {subdomain}")
+        return API._response(
+            lambda: self.server._whitelist.storage.delete(username, subdomain),
+            f"player {username} removed from {subdomain}",
+            "player removal failed: {e}",
+        )
     
     
     def _add_container(self, ip: str, port: int) -> APIResponse:
-        try:
-            server_subdomain = self.server._sessions.containers.storage.create(ip, int(port))
-        except Exception as e:
-            return API._assemble_res("ERROR", f"container addition failed: {e}")
-        else:
-            return API._assemble_res("OK", f"container {ip}:{port} received {server_subdomain}")
+        return API._response(
+            lambda: {"subd": self.server._sessions.containers.storage.create(ip, int(port))},
+            "container {ip}:{port} received {subd}",
+            "container addition failed: {e}",
+        )
     
     
     def _remove_container(self, subdomain: str) -> APIResponse:
-        try:
-            self.server._sessions.interrupt("Your server has been removed", subdomain=subdomain)
-            self.server._sessions.containers.delete(subdomain)
-        except Exception as e:
-            return API._assemble_res("ERROR", f"container removal failed: {e}")
-        else:
-            return API._assemble_res("OK", f"container {subdomain} removed")
+        return API._response(
+            lambda: (
+                self.server._sessions.interrupt("Your server has been removed", subdomain=subdomain),
+                self.server._sessions.containers.delete(subdomain)),
+            f"container {subdomain} removed",
+            "container removal failed: {e}",
+        )
 
 
     def _add_host(self, ip: str, mac: str, user: str, path: str) -> APIResponse:
-        try:
-            self.server._sessions.containers.hostManager.storage.create(ip, mac, user, path)
-        except Exception as e:
-            return API._assemble_res("ERROR", f"host addition failed: {e}")
-        else:
-            return API._assemble_res("OK", f"added {ip} to hosts")
+        return API._response(
+            lambda: self.server._sessions.containers.hostManager.storage.create(ip, mac, user, path),
+            "added {ip} to hosts",
+            "host addition failed: {e}",
+        )
 
 
     def _remove_host(self, ip: str) -> APIResponse:
-        try:
-            self.server._sessions.interrupt("Your server has been removed", ip=ip)
-            self.server._sessions.containers.hostManager.delete(ip)
-        except Exception as e:
-            return API._assemble_res("ERROR", f"host removal failed: {e}")
-        else:
-            return API._assemble_res("OK", f"{ip} removed")
+        return API._response(
+            lambda: (self.server._sessions.interrupt("Your server has been removed", ip=ip),
+                self.server._sessions.containers.hostManager.delete(ip)),
+            f"{ip} removed",
+            "host removal failed: {e}",
+        )
 
     
     def _kick_all(self, ip: str = "", subdomain: str = "") -> APIResponse:
-        try:
-            if subdomain and ip:
-                raise ValueError("specify only a single argument")
+        
+        def kick_logic():
+            if bool(ip) == bool(subdomain):
+                raise ValueError("specify precisely a single argument")
+            self.server._sessions.interrupt(subdomain=subdomain, ip=ip)
             
-            if subdomain:
-                self.server._sessions.interrupt("You were kicked", subdomain=subdomain)
-            elif ip:
-                self.server._sessions.interrupt("You were kicked", ip=ip)
-
-        except Exception as e:
-            return API._assemble_res("ERROR", f"kick failed: {e}")
-        else:
-            return API._assemble_res("OK", f"all players from {subdomain}{ip} were kicked")
+        return API._response(
+            kick_logic,
+            "kick failed: {e}",
+            f"all players from {subdomain}{ip} learned how to fly"
+        )
 
 
     def _list(self, resource: str) -> APIResponse:
@@ -187,11 +202,6 @@ class API():
                     "hosts": self.server._sessions.containers.hostManager.list(),
                 }
             )
-
-
-    @staticmethod
-    def _assemble_res(code: str, data: JSON) -> APIResponse:
-        return APIResponse(code=code, data=data)
 
 
 

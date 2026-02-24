@@ -41,19 +41,16 @@ def send_request(ip: str, port: int, command: str, kwargs: dict[str, str] = {}):
     Encapsulates sending a command to the server socket and handling the response.
 
     Args:
+        ip: The IP to connect to.
         port: The port to connect to.
         command: The command name.
         kwargs: Dictionary of arguments for the command.
-        ip: The IP to connect to.
     
     Returns:
         int: 0 on success, 1 on failure.
     """
 
-    full_cmd = {
-        "cmd_name": command,
-        "kwargs": kwargs
-    }
+    full_cmd = {"cmd_name": command, "kwargs": kwargs }
     
     try:
         with socket.create_connection((ip, port), timeout=3.0) as sock:
