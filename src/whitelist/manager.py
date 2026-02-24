@@ -6,8 +6,8 @@ class BaseWhitelistManager(ABC):
     """A base class for managing and validating whitelisted players"""
 
     @abstractmethod
-    def __init__(self, whitelistRepo: BaseWhitelistRepository) -> None:
-        self.storage = whitelistRepo
+    def __init__(self, whitelist_repo: BaseWhitelistRepository) -> None:
+        self.storage = whitelist_repo
 
     @abstractmethod
     def validate(self, subdomain: str | None = None, username: str | None = None) -> bool:
@@ -24,12 +24,12 @@ class BaseWhitelistManager(ABC):
         ...
         
     @abstractmethod
-    def dict(self) -> list[dict[str, list[str]]]:
+    def dict(self) -> list[dict[str, str]]:
         """
         Returns whitelist contents.
 
         Returns:
-            list[dict[str, list[str]]]: List of user-subdomains mappings.
+            list[dict[str, str]]: List of user-subdomain mappings.
         """
         ...
 
@@ -51,5 +51,5 @@ class WhitelistManager(BaseWhitelistManager):
             return False
 
 
-    def dict(self) -> list[dict[str, list[str]]]:
+    def dict(self) -> list[dict[str, str]]:
         return self.storage.list()

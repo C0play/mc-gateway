@@ -18,9 +18,9 @@ class BaseSessionManager(ABC):
     """A base class for managing sessions"""
 
     @abstractmethod
-    def __init__(self, containerManager: ContainerManager, shutdownConfig: ShutdownConfig) -> None:
-        self.containers = containerManager
-        self.cfg = shutdownConfig
+    def __init__(self, container_manager: ContainerManager, shutdown_config: ShutdownConfig) -> None:
+        self.containers = container_manager
+        self.cfg = shutdown_config
 
     @abstractmethod
     def open(self, client: Client, subdomain: str) -> Session:

@@ -11,9 +11,9 @@ class BaseContainerManager(ABC):
     """Manages the lifecycle and active state of containers."""
 
     @abstractmethod
-    def __init__(self, containerRepo: BaseContainerRepository, hostManager: BaseHostManager) -> None:
-        self.storage = containerRepo
-        self.hostManager = hostManager
+    def __init__(self, container_repo: BaseContainerRepository, host_manager: BaseHostManager) -> None:
+        self.storage = container_repo
+        self.host_manager = host_manager
 
     @abstractmethod
     def load(self, subdomain: str) -> BaseContainer:
@@ -65,9 +65,9 @@ class BaseContainerManager(ABC):
 
 class ContainerManager(BaseContainerManager):
 
-    def __init__(self, containerRepo: BaseContainerRepository, hostManager: BaseHostManager) -> None:
-        self.storage = containerRepo
-        self.hostManager = hostManager
+    def __init__(self, container_repo: BaseContainerRepository, host_manager: BaseHostManager) -> None:
+        self.storage = container_repo
+        self.hosts = host_manager
 
         self.lock = threading.Lock()
         self.active_containers: dict[str, SSHContainer] = {}
@@ -87,7 +87,7 @@ class ContainerManager(BaseContainerManager):
             
             # Get associated host
             try:
-                host = self.hostManager.load(ip)
+                host = self.hosts.load(ip)
             except Exception:
                 raise RuntimeError(f"Host {ip} for container {subdomain} not found")
 
@@ -106,12 +106,12 @@ class ContainerManager(BaseContainerManager):
             self.active_containers[subdomain].stop()
             del self.active_containers[subdomain]
             
-            inactive_hosts: set[str] = set([h["ip"] for h in self.hostManager.list()])
+            inactive_hosts: set[str] = set([h["ip"] for h in self.hosts.list()])
             for container in self.active_containers.values():
                 inactive_hosts.discard(container.host.ip)
             
             for host_ip in inactive_hosts:
-                self.hostManager.unload(host_ip)
+                self.hosts.unload(host_ip)
             
     
     def delete(self, subdomain: str) -> None:

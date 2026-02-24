@@ -1,17 +1,26 @@
-from typing import (
-    Literal,
-    TYPE_CHECKING,
-)
 import re
 from functools import wraps
 from ipaddress import ip_address
 from pathlib import Path
+from typing import (
+    Literal,
+    TYPE_CHECKING,
+)
 
-from pydantic import BaseModel, Field, field_validator, IPvAnyAddress
 from pydantic_extra_types.mac_address import MacAddress
-from fastapi import FastAPI, HTTPException, Request
+from pydantic import (
+    BaseModel,
+    Field,
+    RootModel,
+    field_validator,
+    IPvAnyAddress
+)
 from fastapi import status as HTTPstatus
-
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Request
+)
 
 from ..utils.logger import logger
 if TYPE_CHECKING:
@@ -90,8 +99,8 @@ class FullContainer(ContainerID, ContainerData):
 
 
 # ======================================== RESPONSE MODELS ========================================
-class ListResponse(BaseModel):
-    data: list[PlayerData] | list[FullContainer] | list[HostData] = Field(
+class ListResponse(RootModel):
+    root: list[PlayerData] | list[FullContainer] | list[HostData] = Field(
         ...,
         description="List of requested resources"
     )
@@ -103,10 +112,10 @@ class KickRequest(BaseModel):
 
 
 class StatusResponse(BaseModel):
-    clients: str
-    sessions: list
-    containers: list
-    hosts: list
+    clients: int
+    sessions: int
+    containers: int
+    hosts: int
 
 
 class MessageResponse(BaseModel):
@@ -205,7 +214,7 @@ class API:
         @self.app.post("/host/add", response_model=HostData)
         @handle_errors
         def add_host(host: HostData):
-            self.server._sessions.containers.hostManager.storage.create(
+            self.server._sessions.containers.hosts.storage.create(
                 str(host.ip), str(host.mac), host.user, str(host.path)
             )
             return host
@@ -215,7 +224,7 @@ class API:
         @handle_errors
         def remove_host(host: HostID):
             self.server._sessions.interrupt("Your server has been removed", ip=str(host.ip))
-            self.server._sessions.containers.hostManager.delete(str(host.ip))
+            self.server._sessions.containers.hosts.delete(str(host.ip))
             return host
 
 
@@ -234,10 +243,10 @@ class API:
         @handle_errors
         def status():
             return StatusResponse(
-                clients=str(self.server.get_client_count()), 
-                sessions=self.server._sessions.list(),
-                containers=self.server._sessions.containers.list(), 
-                hosts=self.server._sessions.containers.hostManager.list(),
+                clients=self.server.get_client_count(), 
+                sessions=len(self.server._sessions.list()),
+                containers=len(self.server._sessions.containers.list()), 
+                hosts=len(self.server._sessions.containers.hosts.list()),
             )
 
             
@@ -257,14 +266,14 @@ class API:
                             "port": int(row["port"])
                         }) for row in query]
                 case "hosts":
-                    query = self.server._sessions.containers.hostManager.storage.list()
+                    query = self.server._sessions.containers.hosts.storage.list()
                     lst = [HostData(**{
                         **row,
                         "ip": ip_address(row["ip"]),
                         "mac": MacAddress(row["mac"]),
                         "path": Path(row["path"])
                         }) for row in query]
-            return ListResponse(data=lst)
+            return ListResponse(root=lst)
             
         
         @self.app.post("/stop", response_model=MessageResponse)

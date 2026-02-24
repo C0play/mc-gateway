@@ -10,8 +10,8 @@ from ..utils.logger import logger
 class BaseHostManager(ABC):
     """A class for managing active hosts"""
     
-    def __init__(self, hostRepo: BaseHostRepository) -> None:
-        self.storage = hostRepo
+    def __init__(self, host_repo: BaseHostRepository) -> None:
+        self.storage = host_repo
 
     @abstractmethod
     def load(self, ip: str) -> BaseHost:
@@ -69,8 +69,8 @@ class SSHHostManager(BaseHostManager):
     Manages active SSHHost instances.
     """
     
-    def __init__(self, hostRepo: BaseHostRepository) -> None:
-        super().__init__(hostRepo)
+    def __init__(self, host_repo: BaseHostRepository) -> None:
+        super().__init__(host_repo)
         
         self.lock = threading.Lock()
         self.active_hosts: dict[str, SSHHost] = {}
