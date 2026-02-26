@@ -7,7 +7,7 @@ class BaseHostRepository(ABC):
     """A base class for managing host parameters stored in persistent storage"""
     
     @abstractmethod
-    def create(self, ip: str, mac: str, user: str, path: str) -> None:
+    def create(self, ip: str, mac: str, user: str, path: str) -> Host:
         """
         Creates a new host record.
 
@@ -17,6 +17,9 @@ class BaseHostRepository(ABC):
             user: SSH username.
             path: Base path on the host.
 
+        Returns:
+            Host: The newly created Host instance.
+
         Raises:
             KeyError: If the host already exists.
             RuntimeError: If an unexpected error occurs.
@@ -24,21 +27,35 @@ class BaseHostRepository(ABC):
         ...
     
     @abstractmethod
-    def read(self, ip: str) -> tuple[str, str, str]:
+    def read(self, **filters) -> list[Host]:
         """
-        Retrieves host details by IP.
+        Retrieves host records matching the given filters.
 
         Args:
-            ip: The IP address to look up.
+            **filters: Field names and values to filter by.
 
         Returns:
-            tuple[str, str, str]: A tuple containing (mac, user, path).
+            list[Host]: Matching Host model instances.
+        """
+        ...
+    
+    @abstractmethod
+    def update(self, ip: str, **fields) -> Host:
+        """
+        Updates arbitrary fields on a host record.
+
+        Args:
+            ip: The IP of the host.
+            **fields: Field names and their new values.
+
+        Returns:
+            Host: The updated Host instance.
 
         Raises:
             KeyError: If the host does not exist.
         """
         ...
-    
+
     @abstractmethod
     def delete(self, ip: str) -> None:
         """
@@ -68,23 +85,32 @@ class SQLHostRepository(BaseHostRepository):
     Implementation of host storage using Peewee ORM.
     """
     
-    def create(self, ip: str, mac: str, user: str, path: str) -> None:
+    def create(self, ip: str, mac: str, user: str, path: str) -> Host:
         try:
-            Host.create(ip=ip, mac=mac, user=user, path=path)
+            return Host.create(ip=ip, mac=mac, user=user, path=path)
         except (KeyError, IntegrityError) as e:
             raise KeyError(f"failed to add host: {e}")
         except Exception as e:
             raise RuntimeError(f"unexpected error while creating a new host: {e}")
 
-    
-    def read(self, ip: str) -> tuple[str, str, str]:
 
-        host = Host.get_or_none(Host.ip == ip)
-        if host is None:
-             raise KeyError(f"host {ip} does not exist")
-        return host.mac, host.user, host.path
+    def read(self, **filters) -> list[Host]:
+        query = Host.select()
+        for field, value in filters.items():
+            query = query.where(getattr(Host, field) == value)
+        return list(query)
 
-    
+
+    def update(self, ip: str, **fields) -> Host:
+        rows = (Host
+                    .update(**fields)
+                    .where(Host.ip == ip)
+                    .execute())
+        if rows == 0:
+            raise KeyError(f"host {ip} does not exist")
+        return Host.get_by_id(ip)
+
+
     def delete(self, ip: str) -> None:
 
         query = Host.delete().where(Host.ip == ip)

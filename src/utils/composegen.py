@@ -11,6 +11,8 @@ from pydantic import (
     field_validator
 )
 
+from .validators import validate_ram_allocation
+
 
 Difficulty: TypeAlias = Literal["peaceful", "easy", "normal", "hard"]
 ReleaseType: TypeAlias = Literal["release", "beta", "alpha"]
@@ -29,15 +31,24 @@ class ComposeConfig(BaseModel):
     @field_validator("ram")
     @classmethod
     def validate_ram(cls, v: str) -> str:
-        amount = int(v[:-1])
-        size = v[-1]
+        return validate_ram_allocation(v)
 
-        if size not in ["M", "G"]:
-            raise ValueError(f"Choose from [M, G]")
-        
-        if size == "M" and (amount > 6135 or amount < 2048)  or size == "G" and (amount > 6 or amount < 2):
-            raise ValueError(f"RAM amount has to be between 2 and 6 GB")
-        
+class OptComposeConfig(BaseModel):
+    """
+    Configuration model for generating docker-compose.yml files.
+    """
+    ram: str | None = Field(None, description="The amount of memory to allocate (e.g., '2G', '4G')")
+    version: str | None = Field(None, description="The Minecraft version to use")
+    difficulty: Difficulty | None = Field(None, description="Game difficulty (peaceful, easy, normal, hard)")
+    view_distance: int | None = Field(None, ge=1, le=32, description="Server view distance")
+    mod_version_type: ReleaseType | None = Field(None, description="Allowed mod release type for Modrinth projects")
+    modrinth_projects: list[str] | None = Field(None, description="List of Modrinth mods URLs or IDs to install")
+
+    @field_validator("ram")
+    @classmethod
+    def validate_ram(cls, v: str | None) -> str | None:
+        if v is not None:
+            return validate_ram_allocation(v)
         return v
 
 

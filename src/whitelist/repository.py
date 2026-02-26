@@ -11,13 +11,16 @@ class BaseWhitelistRepository(ABC):
     """A base class for managing whitelist parameters stored in persistent storage"""
     
     @abstractmethod
-    def create(self, username: str, subdomain: str) -> None:
+    def create(self, username: str, subdomain: str) -> Whitelist:
         """
         Adds a player to a server's whitelist.
 
         Args:
             username: The player's username.
             subdomain: The server's subdomain.
+
+        Returns:
+            Whitelist: The newly created Whitelist instance.
 
         Raises:
             KeyError: If the container does not exist or the player is already whitelisted.
@@ -83,9 +86,9 @@ class SQLWhitelistRepository(BaseWhitelistRepository):
     Implementation of whitelist storage using Peewee ORM.
     """
 
-    def create(self, username: str, subdomain: str) -> None:
+    def create(self, username: str, subdomain: str) -> Whitelist:
         try:
-            Whitelist.create(
+            return Whitelist.create(
                 username=username,
                 container=subdomain
             )

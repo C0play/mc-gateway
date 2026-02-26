@@ -7,6 +7,7 @@ from .container import BaseContainer, SSHContainer
 from ..host.manager import BaseHostManager
 from ..host.host import BaseHost, SSHHost
 from ..utils.composegen import generate_compose, ComposeConfig
+from ..utils.models import Container as ContainerRecord
 from ..utils.logger import logger
 
 
@@ -20,7 +21,7 @@ class BaseContainerManager(ABC):
 
 
     @abstractmethod
-    def create(self, ip: str, port: int, config: ComposeConfig) -> str:
+    def create(self, ip: str, port: int, config: ComposeConfig) -> ContainerRecord:
         """
         Creates a new container entry and persists configuration for deferred deployment.
         The compose.yml will be deployed to the remote host on the container's first start.
@@ -31,7 +32,7 @@ class BaseContainerManager(ABC):
             config: Configuration for compose.yml generation.
 
         Returns:
-            str: The assigned subdomain.
+            ContainerRecord: The newly created container record.
         """
         ...
 
@@ -93,14 +94,14 @@ class ContainerManager(BaseContainerManager):
         self.active_containers: dict[str, SSHContainer] = {}
 
     
-    def create(self, ip: str, port: int, config: ComposeConfig) -> str:
+    def create(self, ip: str, port: int, config: ComposeConfig) -> ContainerRecord:
         """
         Persists container record with serialized config. Does NOT require host to be online.
         """
         config_json = config.model_dump_json()
-        subdomain = self.storage.create(ip, port, config_json)
-        logger.info(f"Container {subdomain} registered on {ip}:{port}. Will be initialized on first start.")
-        return subdomain
+        record = self.storage.create(ip, port, config_json)
+        logger.info(f"Container {record.subdomain} registered on {ip}:{port}. Will be initialized on first start.")
+        return record
 
 
     def load(self, subdomain: str) -> SSHContainer:

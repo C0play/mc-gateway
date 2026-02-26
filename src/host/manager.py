@@ -1,5 +1,6 @@
 import threading 
 from abc import ABC, abstractmethod
+from typing import cast
 
 from .host import BaseHost, SSHHost
 from .repository import BaseHostRepository
@@ -82,11 +83,17 @@ class SSHHostManager(BaseHostManager):
                 return self.active_hosts[ip]
             
             try:
-                mac, user, path = self.storage.read(ip)
+                record = self.storage.read(ip=ip)
+                if not record:
+                    raise ValueError(f"no host with {ip} found")
+                record = record[0]
             except:
                 logger.exception(f"failed to get {ip} host parameters from storage")
                 raise
             else:
+                mac = cast(str, record.mac)
+                user = cast(str, record.user)
+                path = cast(str, record.path)
                 host = SSHHost(ip, mac, user, path)
                 self.active_hosts[ip] = host
                 return host

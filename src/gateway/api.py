@@ -1,9 +1,9 @@
-import re
 from functools import wraps
 from ipaddress import ip_address
 from pathlib import Path
 from typing import (
     Literal,
+    cast,
     TYPE_CHECKING,
 )
 
@@ -13,6 +13,7 @@ from pydantic import (
     Field,
     RootModel,
     field_validator,
+    model_validator,
     IPvAnyAddress
 )
 from fastapi import status as HTTPstatus
@@ -22,9 +23,15 @@ from fastapi import (
     Request
 )
 
-from ..utils.composegen import ComposeConfig
+from ..utils.composegen import ComposeConfig, OptComposeConfig
 from ..utils.keygen import KeyGenerator
 from ..utils.logger import logger
+from ..utils.validators import (
+    validate_linux_user,
+    validate_absolute_path,
+    validate_subdomain,
+    check_path_user_consistency
+)
 if TYPE_CHECKING:
     from .server import Server
 
@@ -33,6 +40,11 @@ if TYPE_CHECKING:
 class PlayerID(BaseModel):
     username: str = Field(..., max_length=50, description="Username of the player")
     subdomain: str = Field(..., min_length=4, max_length=4, description="Server subdomain assigned to the player")
+
+    @field_validator("subdomain")
+    @classmethod
+    def validate_subdomain(cls, v: str) -> str:
+        return validate_subdomain(v)
 
 
 class PlayerData(PlayerID):
@@ -48,7 +60,7 @@ class HostID(BaseModel):
     ip: IPvAnyAddress = Field(..., description="IP address of the host machine")
 
 
-class HostData(HostID):
+class HostData(BaseModel):
     mac: MacAddress = Field(..., description="MAC address of the host machine")
     user: str = Field(..., max_length=50, description="User of the host machine")
     path: Path = Field(..., description="Path to the directory containing all minecraft server directories")
@@ -56,29 +68,46 @@ class HostData(HostID):
     @field_validator('user')
     @classmethod
     def validate_user(cls, v: str) -> str:
-        pattern = r"^[a-z_][a-z0-9_-]*$"
-        if not re.match(pattern, v):
-            raise ValueError('Invalid Linux username')
-        return v
+        return validate_linux_user(v)
 
     @field_validator('path')
     @classmethod
     def validate_path(cls, v: Path) -> Path:
-         if not v.is_absolute():
-            raise ValueError('Path must be absolute')
-         
-         # Basic sanitization check for path traversal or dangerous characters
-         # Allow alphanumeric, /, _, -, .
-         s = str(v)
-         pattern = r"^/[\w\-\./]+$"
-         if not re.match(pattern, s) or '..' in s:
-              raise ValueError('Invalid path format or characters')
-         return v
+        return validate_absolute_path(v)
 
-class OptHostData(HostID):
-    mac: str | None = Field(None, min_length=17, max_length=17, description="MAC address of the host machine")
+    @model_validator(mode='after')
+    def validate_path_user_consistency(self) -> 'HostData':
+        check_path_user_consistency(self.user, self.path)
+        return self
+
+
+class OptHostData(BaseModel):
+    mac: MacAddress | None = Field(None, description="MAC address of the host machine")
     user: str | None = Field(None, max_length=50, description="User of the host machine")
     path: Path | None = Field(None, description="Path to the directory containing all minecraft server directories")
+
+    @field_validator('user')
+    @classmethod
+    def validate_user(cls, v: str | None) -> str | None:
+        if v is not None:
+            return validate_linux_user(v)
+        return v
+
+    @field_validator('path')
+    @classmethod
+    def validate_path(cls, v: Path | None) -> Path | None:
+        if v is not None:
+            return validate_absolute_path(v)
+        return v
+
+    @model_validator(mode='after')
+    def validate_path_user_consistency(self) -> 'OptHostData':
+        check_path_user_consistency(self.user, self.path)
+        return self
+
+
+class FullHost(HostID, HostData):
+    pass
 
 
 # ======================================== CONTAINER MODELS ========================================
@@ -88,9 +117,7 @@ class ContainerID(BaseModel):
     @field_validator("subdomain")
     @classmethod
     def validate_subdomain(cls, v: str) -> str:
-        if KeyGenerator.validate(v):
-            return v
-        raise ValueError('Subdomain contains illegal characters')
+        return validate_subdomain(v)
 
 
 class ContainerData(BaseModel):
@@ -98,13 +125,23 @@ class ContainerData(BaseModel):
     port: int = Field(..., description="Port of the host machine assigned to the container")
 
 
-class OptContainerData(ContainerID):
+class OptContainerData(BaseModel):
     ip: IPvAnyAddress | None = Field(None, description="IP address of the host machine assigned to the container")
     port: int | None = Field(None, description="Port of the host machine assigned to the container")
 
 
 class FullContainer(ContainerID, ContainerData):
-    pass
+    initialized: bool = Field(..., description="Flag whether compose.yml was deployed on the host")
+    to_be_deleted: bool = Field(..., description="Flag whether container is set to be deleted")
+    config: ComposeConfig = Field(..., description="Configuration used to generate compose.yml")
+
+
+class ContainerCreateRequest(ContainerData):
+    config: ComposeConfig = Field(..., description="YAML file variables to use for server confguration")
+
+
+class ContainerUpdateRequest(OptContainerData):
+    config: OptComposeConfig = Field(..., description="YAML file variables to use for server confguration")
 
 
 # ======================================== REQUEST MODELS ========================================
@@ -114,25 +151,15 @@ class KickRequest(BaseModel):
 
     @field_validator("subdomain")
     @classmethod
-    def validate_subdomain(cls, v: str) -> str:
-        if KeyGenerator.validate(v):
-            return v
-        raise ValueError('Subdomain contains illegal characters')
-    
+    def validate_subdomain(cls, v: str | None) -> str | None:
+        if v is not None:
+             return validate_subdomain(v)
+        return v
 
-class ContainerCreateRequest(ContainerData):
-    config: ComposeConfig = Field(..., description="YAML file variables to use for server confguration")
-
-
-class ContainerCreateResponse(FullContainer):
-    initialized: bool = Field(..., description="Flag whether compose.yml was deployed on the host")
-    to_be_deleted: bool = Field(..., description="Flag whether container is set to be deleted")
-    config: ComposeConfig = Field(..., description="Configuration used to generate compose.yml")
-    
 
 # ======================================== RESPONSE MODELS ========================================
 class ListResponse(RootModel):
-    root: list[PlayerData] | list[ContainerCreateResponse] | list[HostData] = Field(
+    root: list[PlayerData] | list[FullContainer] | list[HostData] = Field(
         ...,
         description="List of requested resources"
     )
@@ -224,18 +251,70 @@ class API:
             return player
 
 
-        @self.app.post("/container/add", response_model=ContainerCreateResponse)
+        @self.app.post("/container/add", response_model=FullContainer)
         @handle_errors
         def add_container(data: ContainerCreateRequest):
-            subd = self.server._sessions.containers.create(
-                str(data.ip), data.port, data.config)
-            return ContainerCreateResponse(
-                subdomain=subd,
+            container = self.server._sessions.containers.create(
+                str(data.ip),
+                data.port,
+                data.config
+            )
+            return FullContainer(
+                subdomain=str(container.subdomain),
                 ip=data.ip,
                 port=data.port,
                 initialized=False,
                 to_be_deleted=False,
                 config=data.config
+            )
+
+
+        @self.app.put("/container/update/{subdomain}", response_model=FullContainer)
+        @handle_errors
+        def update_container(subdomain: str, data: ContainerUpdateRequest):
+            if not KeyGenerator.validate(subdomain):
+                raise ValueError(f"subdomain is not valid")
+            
+            containers = self.server._sessions.containers.storage.read(subdomain=subdomain)
+            if not containers:
+                 raise KeyError(f"container {subdomain} does not exist")
+            old_container = containers[0]
+
+            update_fields = {}
+            if data.ip:
+                update_fields['host'] = str(data.ip)
+            if data.port:
+                update_fields['port'] = data.port
+
+            # Merge config fields
+            current_cfg = ComposeConfig.model_validate_json(str(old_container.config))
+            updates = data.config.model_dump(exclude_unset=True)
+            
+            if updates:
+                merged_dict = current_cfg.model_dump()
+                for k, v in updates.items():
+                    if v is not None:
+                        merged_dict[k] = v
+                
+                new_cfg_obj = ComposeConfig(**merged_dict)
+                update_fields['config'] = new_cfg_obj.model_dump_json()
+            else:
+                new_cfg_obj = current_cfg
+
+            if update_fields:
+                updated_container = self.server._sessions.containers.storage.update(
+                    subdomain, **update_fields
+                )
+            else:
+                updated_container = old_container
+
+            return FullContainer(
+                subdomain = str(updated_container.subdomain),
+                ip = updated_container.host.ip,
+                port = cast(int, updated_container.port),
+                initialized = bool(updated_container.initialized),
+                to_be_deleted = bool(updated_container.to_be_deleted),
+                config = new_cfg_obj
             )
 
 
@@ -252,11 +331,26 @@ class API:
 
         @self.app.post("/host/add", response_model=HostData)
         @handle_errors
-        def add_host(host: HostData):
+        def add_host(host: FullHost):
             self.server._sessions.containers.hosts.storage.create(
                 str(host.ip), str(host.mac), host.user, str(host.path)
             )
             return host
+        
+        
+        @self.app.put("/host/update/{ip}", response_model=FullHost)
+        @handle_errors
+        def update_host(ip: IPvAnyAddress, data: OptHostData):
+            updates = data.model_dump(exclude_unset=True)
+            new_host = self.server._sessions.containers.hosts.storage.update(
+                str(ip), **updates
+            )
+            return FullHost(
+                ip=ip,
+                mac=MacAddress(new_host.mac),
+                user=str(new_host.user),
+                path=Path(str(new_host.path)),
+            )
 
 
         @self.app.delete("/host/remove", response_model=HostID)
@@ -268,7 +362,6 @@ class API:
             )
             self.server._sessions.containers.hosts.delete(str(host.ip))
             return host
-
 
 
         @self.app.post("/kick", response_model=MessageResponse)
@@ -309,7 +402,7 @@ class API:
 
             elif resource == "containers":
                 query = self.server._sessions.containers.storage.list()
-                lst = [ContainerCreateResponse(**{
+                lst = [FullContainer(**{
                         **row,
                         "port": int(row["port"]),
                         "config": ComposeConfig.model_validate_json(row["config"])

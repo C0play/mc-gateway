@@ -20,7 +20,7 @@ class BaseContainerRepository(ABC):
     
 
     @abstractmethod
-    def create(self, ip: str, port: int, config_json: str) -> str:
+    def create(self, ip: str, port: int, config_json: str) -> Container:
         """
         Creates a new container record.
 
@@ -30,7 +30,7 @@ class BaseContainerRepository(ABC):
             config_json: Serialized ComposeConfig (JSON) to persist for deferred deployment.
 
         Returns:
-            str: The generated subdomain for the container.
+            Container: The newly created Container instance.
 
         Raises:
             RuntimeError: If creation fails.
@@ -52,13 +52,16 @@ class BaseContainerRepository(ABC):
         ...
     
     @abstractmethod
-    def update(self, subdomain: str, **fields) -> None:
+    def update(self, subdomain: str, **fields) -> Container:
         """
         Updates arbitrary fields on a container record.
 
         Args:
             subdomain: The subdomain of the container.
             **fields: Field names and their new values.
+
+        Returns:
+            Container: The updated Container instance.
 
         Raises:
             KeyError: If the container does not exist.
@@ -101,7 +104,7 @@ class SQLContainerRepository(BaseContainerRepository):
         super().__init__(key_generator)
         
          
-    def create(self, ip: str, port: int, config_json: str) -> str:
+    def create(self, ip: str, port: int, config_json: str) -> Container:
         try:
             new_key = self.key.gen()
             container: Container = Container.create(
@@ -110,7 +113,7 @@ class SQLContainerRepository(BaseContainerRepository):
                 port=port,
                 config=config_json,
             )
-            return str(container.subdomain)
+            return container
         except Exception as e:
             raise RuntimeError(f"failed to create container {ip}:{port}: {e}")
 
@@ -122,13 +125,14 @@ class SQLContainerRepository(BaseContainerRepository):
         return list(query)
     
 
-    def update(self, subdomain: str, **fields) -> None:
+    def update(self, subdomain: str, **fields) -> Container:
         rows = (Container
                     .update(**fields)
                     .where(Container.subdomain == subdomain)
                     .execute())
         if rows == 0:
             raise KeyError(f"container {subdomain} does not exist")
+        return Container.get_by_id(subdomain)
     
     
     def delete(self, subdomain: str) -> None:
