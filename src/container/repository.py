@@ -20,13 +20,14 @@ class BaseContainerRepository(ABC):
     
 
     @abstractmethod
-    def create(self, ip: str, port: int) -> str:
+    def create(self, ip: str, port: int, config_json: str) -> str:
         """
         Creates a new container record.
 
         Args:
             ip: The IP address of the host running the container.
             port: The port exposed by the container.
+            config_json: Serialized ComposeConfig (JSON) to persist for deferred deployment.
 
         Returns:
             str: The generated subdomain for the container.
@@ -35,23 +36,35 @@ class BaseContainerRepository(ABC):
             RuntimeError: If creation fails.
         """
         ...
-    
+
     @abstractmethod
-    def read(self, subdomain: str) -> tuple[str, int]:
+    def read(self, **filters) -> list[Container]:
         """
-        Retrieves container details by subdomain.
+        Retrieves container records matching the given filters.
 
         Args:
-            subdomain: The subdomain to look up.
+            **filters: Field names and values to filter by (e.g. subdomain="abc",
+                       to_be_deleted=True, host="1.2.3.4").
 
         Returns:
-            tuple[str, int]: A tuple containing (host_ip, port).
+            list[Container]: Matching Container model instances.
+        """
+        ...
+    
+    @abstractmethod
+    def update(self, subdomain: str, **fields) -> None:
+        """
+        Updates arbitrary fields on a container record.
+
+        Args:
+            subdomain: The subdomain of the container.
+            **fields: Field names and their new values.
 
         Raises:
             KeyError: If the container does not exist.
         """
         ...
-    
+
     @abstractmethod
     def delete(self, subdomain: str) -> None:
         """
@@ -64,7 +77,7 @@ class BaseContainerRepository(ABC):
             KeyError: If the container does not exist.
         """
         ...
-    
+
     def list(self) -> list[dict[str, str]]:
         """
         Returns all stored containers in JSON friendly format.
@@ -88,30 +101,36 @@ class SQLContainerRepository(BaseContainerRepository):
         super().__init__(key_generator)
         
          
-    def create(self, ip: str, port: int) -> str:
+    def create(self, ip: str, port: int, config_json: str) -> str:
         try:
             new_key = self.key.gen()
             container: Container = Container.create(
                 subdomain=new_key,
                 host=ip,
-                port=port
+                port=port,
+                config=config_json,
             )
             return str(container.subdomain)
         except Exception as e:
             raise RuntimeError(f"failed to create container {ip}:{port}: {e}")
-        
 
-    def read(self, subdomain: str) -> tuple[str, int]:
-        query = (Container
-                    .select(Container.host, Container.port)
-                    .where(Container.subdomain == subdomain))
-        
-        if not query.exists():
-            raise KeyError(f"container {subdomain} does not exist")
-        
-        return query[0].host.ip, query[0].port
+
+    def read(self, **filters) -> list[Container]:
+        query = Container.select()
+        for field, value in filters.items():
+            query = query.where(getattr(Container, field) == value)
+        return list(query)
     
 
+    def update(self, subdomain: str, **fields) -> None:
+        rows = (Container
+                    .update(**fields)
+                    .where(Container.subdomain == subdomain)
+                    .execute())
+        if rows == 0:
+            raise KeyError(f"container {subdomain} does not exist")
+    
+    
     def delete(self, subdomain: str) -> None:
         query = (Container
                     .delete()
@@ -121,14 +140,16 @@ class SQLContainerRepository(BaseContainerRepository):
         
         if rows_deleted == 0:
             raise KeyError(f"container {subdomain} does not exist")
-        
+
 
     def list(self) -> list[dict[str, str]]:
 
         query = Container.select()
         return [{
-                "subdomain": c.subdomain, 
-                "ip": c.host_id,
-                "port": str(c.port)
-            } for c in query
-        ]
+                "subdomain": row.subdomain, 
+                "ip": row.host_id,
+                "port": str(row.port),
+                "to_be_deleted": row.to_be_deleted,
+                "initialized": row.initialized,
+                "config": row.config
+            } for row in query]

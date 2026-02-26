@@ -3,4 +3,5 @@ pydantic
 pydantic_extra_types
 uvicorn
 peewee
+pyyaml
 psycopg2-binary

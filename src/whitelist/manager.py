@@ -36,8 +36,8 @@ class BaseWhitelistManager(ABC):
 
 class WhitelistManager(BaseWhitelistManager):
 
-    def __init__(self, whitelistRepo: BaseWhitelistRepository) -> None:
-        self.storage = whitelistRepo
+    def __init__(self, whitelist_repo: BaseWhitelistRepository) -> None:
+        self.storage = whitelist_repo
         
 
     def validate(self, subdomain: str | None = None, username: str | None = None) -> bool:

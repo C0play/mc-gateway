@@ -1,19 +1,22 @@
+import os
 import time
 import socket
+import tempfile
 import threading
 import subprocess
+from subprocess import CalledProcessError
 from abc import ABC, abstractmethod
+from typing import Callable
 
 from ..utils.logger import logger
 
 
 class BaseHost(ABC):
     
-    def __init__(self, ip: str, mac: str, user: str, path: str) -> None:
+    def __init__(self, ip: str, mac: str) -> None:
         self.ip = ip
         self.mac = mac
-        self.user = user
-        self.path = path
+        self.on_start: Callable[['BaseHost'], None] | None = None
 
 
     @abstractmethod
@@ -63,20 +66,51 @@ class BaseHost(ABC):
             RuntimeError: If the stop command fails.
         """
         ...
+    
+    @abstractmethod
+    def deploy(self, port: int, config: str) -> None:
+        """
+        Deploys container configuration for the given port.
 
+        Args:
+            port: The port number identifying the container.
+            config: Text content of the configuration to deploy.
+
+        Raises:
+            RuntimeError: If deployment fails.
+        """
+        ...
+    
+    @abstractmethod
+    def remove(self, port: int) -> None:
+        """
+        Removes the container identified by port from the host.
+
+        Args:
+            port: The port number identifying the container.
+
+        Raises:
+            RuntimeError: If removal fails.
+        """
+        ...
+    
     def dict(self) -> dict[str, str]:
         """
         Returns host parameters as a dictionary.
 
         Returns:
-            dict[str, str]: Dictionary containing 'mac', 'user', and 'path'.
+            dict[str, str]: Dictionary containing all host parameters.
         """
         return {
+            "ip": self.ip,
             "mac": self.mac,
-            "user": self.user,
-            "path": self.path
         }
     
+    def register_callback(self, on_start: Callable[['BaseHost'], None]) -> None:
+        if self.on_start:
+            return 
+        self.on_start = on_start
+
     def __str__(self) -> str:
         return f"Host({self.ip})"
     
@@ -97,12 +131,14 @@ class SSHHost(BaseHost):
     A host implementation that manages a remote machine via SSH and Wake-on-LAN.
     """
 
-    def __init__(self, ip: str, mac: str,  user: str, path: str) -> None:
-        super().__init__(ip, mac, user, path)
+    def __init__(self, ip: str, mac: str, user: str, path: str) -> None:
+        super().__init__(ip, mac)
+        self.user = user
+        self.path = path
 
         self._start_lock = threading.Lock()
         self._stop_lock = threading.Lock()
-        
+
 
     def is_online(self) -> bool:
         """
@@ -110,6 +146,7 @@ class SSHHost(BaseHost):
         """
         try:
             with socket.create_connection((self.ip, 22), timeout=0.5):
+                self._execute_on_start()
                 return True
         except OSError:
             return False
@@ -133,7 +170,7 @@ class SSHHost(BaseHost):
             with self._start_lock:
                 if self.is_online():
                     return True
-                
+
                 cmd = ["wakeonlan", self.mac]
                 subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=0.1)
 
@@ -186,3 +223,71 @@ class SSHHost(BaseHost):
             raise TimeoutError(f"host {self.ip} offline after {e.args[0]}s")
         except Exception as e:
             raise RuntimeError(f"host {self.ip} stop failed: {e}")
+        
+    
+    def deploy(self, port: int, config: str) -> None:
+        """Creates the container directory and writes compose.yml via SCP."""
+
+        path = f"{self.path}/server_{port}"
+        filepath = path + "/compose.yml"
+        mkdir_cmd = ["ssh", f"{self.user}@{self.ip}", "mkdir", "-p", path]
+        logger.debug(mkdir_cmd)
+        try:
+            subprocess.run(mkdir_cmd, capture_output=True, text=True, check=True)
+        except CalledProcessError as e:
+            raise RuntimeError(f"failed to create directory {path} on {self.ip}")
+        except Exception as e:
+            raise RuntimeError(e)
+
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp:
+                tmp.write(config)
+                tmp_path = tmp.name
+        except Exception as e:
+            raise RuntimeError(f"writing tempfile for {path} failed: {e}")
+        
+        try:
+            scp_cmd = ["scp", tmp_path, f"{self.user}@{self.ip}:{filepath}"]
+            subprocess.run(scp_cmd, capture_output=True, text=True, check=True)
+        except Exception as e:
+            rmdir_cmd = ["ssh", f"{self.user}@{self.ip}", "rmdir", path]
+            subprocess.run(rmdir_cmd, capture_output=True, text=True, check=True)
+            raise RuntimeError(f"failed to transfer {filepath} to {self.ip}: {e}")
+        finally:
+            os.unlink(tmp_path)
+
+
+    def remove(self, port: int) -> None:
+        """Removes the container directory via SSH rm -rf."""
+
+        path = f"{self.path}/server_{port}"
+        check_cmd = ["ssh", f"{self.user}@{self.ip}", "test", "-d", path]
+        res = subprocess.run(check_cmd, capture_output=True, text=True)
+        if res.returncode != 0:
+            logger.debug(f"remove: {path} does not exist on {self.ip}, skipping")
+            return
+
+        rmrf_cmd = ["ssh", f"{self.user}@{self.ip}", "rm", "-rf", path]
+        try:
+            subprocess.run(rmrf_cmd, capture_output=True, text=True, check=True)
+        except CalledProcessError as e:
+            logger.debug(f"stdout: {e.stdout}, stderr: {e.stderr}")
+            raise RuntimeError(f"failed to remove {path}: {e}")
+        except Exception as e:
+            raise RuntimeError(f"unexpected error during removal of {path}: {e}")
+
+
+    def _execute_on_start(self) -> None:
+        if not self.on_start:
+            return
+        callback = self.on_start
+        self.on_start = None
+        callback(self)
+
+
+    def dict(self) -> dict[str, str]:
+        return {
+            **super().dict(),
+             "path": self.path,
+            "user": self.user,
+        }

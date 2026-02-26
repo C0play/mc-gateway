@@ -40,6 +40,9 @@ class Container(BaseModel):
     subdomain = pewe.CharField(max_length=4, unique=True, primary_key=True)
     port = pewe.IntegerField()
     host = pewe.ForeignKeyField(Host, backref="containers", field='ip', null=True, on_delete='SET NULL')
+    initialized = pewe.BooleanField(default=False)
+    to_be_deleted = pewe.BooleanField(default=False)
+    config = pewe.TextField(default="{}")
 
     class Meta:
         indexes = (

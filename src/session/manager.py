@@ -78,9 +78,9 @@ class BaseSessionManager(ABC):
 
 class SessionManager(BaseSessionManager):
     
-    def __init__(self, containerManager: ContainerManager, shutdownConfig: ShutdownConfig) -> None:
-        self.containers = containerManager
-        self.cfg = shutdownConfig
+    def __init__(self, container_manager: ContainerManager, shutdown_config: ShutdownConfig) -> None:
+        self.containers = container_manager
+        self.cfg = shutdown_config
 
         self.sessions_lock = threading.Lock()
         self.sessions: dict[Client, Session] = {}
@@ -91,6 +91,9 @@ class SessionManager(BaseSessionManager):
         with self.sessions_lock:
             if client in self.sessions:
                 raise KeyError(f"{client} already has a session")
+        
+        if self.containers.storage.read(subdomain=subdomain, to_be_deleted=True):
+            raise ValueError(f"container {subdomain} is marked for deletion")
         
         try:
             container = self.containers.load(subdomain)
@@ -147,7 +150,7 @@ class SessionManager(BaseSessionManager):
                 containers = self.containers.active_containers.values()
 
             with self.sessions_lock:
-                sessions = [session for session in self.sessions.values()]
+                sessions = self.sessions.values()
 
             container_clients: dict[BaseContainer, int] = {}
             for container in containers:
@@ -160,7 +163,6 @@ class SessionManager(BaseSessionManager):
                 container_clients[session.container] = clients + 1
 
             for container, clients in container_clients.items():
-                logger.debug(f"{container}: {now - container_idle_since.setdefault(container, now)}")
                 
                 if clients > 0:
                     container_idle_since.pop(container, None)

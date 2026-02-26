@@ -56,7 +56,7 @@ def send_request(ip: str, port: int, method: str, endpoint: str, payload: dict  
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
 
     try:
-        with urllib.request.urlopen(req, timeout=5.0) as response:
+        with urllib.request.urlopen(req, timeout=10.0) as response:
             if response.status != 200:
                 return _handle_error(f"HTTP {response.status}: {response.reason}")
             
@@ -104,8 +104,8 @@ def send_cmd(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="MC Gateway CLI")
     
     # Global arguments
-    parser.add_argument("--ip", dest="ip", default="127.0.0.1", help="Gateway IP address (default: 127.0.0.1)")
-    parser.add_argument("--port", dest="port", type=int, default=25566, help="Gateway control port (default: 25566)")
+    parser.add_argument("--ip", dest="req_ip", default="127.0.0.1", help="Gateway IP address (default: 127.0.0.1)")
+    parser.add_argument("--port", dest="req_port", type=int, default=25566, help="Gateway control port (default: 25566)")
 
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
 
@@ -163,10 +163,37 @@ def send_cmd(argv: list[str]) -> int:
     parser_add_container = container_subparsers.add_parser("add", help="Add a container mapping")
     parser_add_container.add_argument("ip", help="Container IP address")
     parser_add_container.add_argument("port", type=int, help="Container port")
+    parser_add_container.add_argument("--ram", dest="ram", type=str, help="Server memory")
+    parser_add_container.add_argument("-v", dest="version", type=str, help="Game version")
+    parser_add_container.add_argument(
+        "-d",
+        dest="difficulty",
+        type=str,
+        choices=("peaceful", "easy", "normal", "hard"),
+        help="Game difficulty",
+    )
+    parser_add_container.add_argument("--viewd", dest="view_d", type=int, help="Game view distance")
+    parser_add_container.add_argument(
+        "--modr",
+        dest="modr",
+        choices=("release", "beta", "alpha"),
+        help="Mod release type list"
+    )
+    parser_add_container.add_argument("--mods", dest="mods", nargs="+", help="Mod list")
     parser_add_container.set_defaults(
         func=lambda args: (
             "POST", "/container/add",
-            {"ip": args.ip, "port": args.port}
+            {
+                "ip": args.ip,
+                "port": args.port,
+                "config": {k: v for k, v in {
+                    "ram": args.ram,
+                    "version": args.version,
+                    "difficulty": args.difficulty,
+                    "view_distance": args.view_d,
+                    "modrinth_projects": args.mods,
+                }.items() if v is not None}
+            }
     ))
 
     # container remove <subdomain>
@@ -227,7 +254,7 @@ def send_cmd(argv: list[str]) -> int:
     # Execute the handler function mapped to the command
     if hasattr(args, "func"):
         method, endpoint, payload = args.func(args)
-        return send_request(args.ip, args.port, method, endpoint, payload)
+        return send_request(args.req_ip, args.req_port, method, endpoint, payload)
     else:
         print(f"ERROR: No handler for command {args.command}")
         return 1

@@ -22,6 +22,8 @@ from fastapi import (
     Request
 )
 
+from ..utils.composegen import ComposeConfig
+from ..utils.keygen import KeyGenerator
 from ..utils.logger import logger
 if TYPE_CHECKING:
     from .server import Server
@@ -83,32 +85,57 @@ class OptHostData(HostID):
 class ContainerID(BaseModel):
     subdomain: str = Field(..., min_length=4, max_length=4, description="Subdomain assigned to the container")
 
+    @field_validator("subdomain")
+    @classmethod
+    def validate_subdomain(cls, v: str) -> str:
+        if KeyGenerator.validate(v):
+            return v
+        raise ValueError('Subdomain contains illegal characters')
+
 
 class ContainerData(BaseModel):
-    ip: str = Field(..., min_length=7, max_length=15, description="IP address of the host machine assigned to the container")
+    ip: IPvAnyAddress = Field(..., description="IP address of the host machine assigned to the container")
     port: int = Field(..., description="Port of the host machine assigned to the container")
 
 
 class OptContainerData(ContainerID):
-    host_ip: str | None = Field(None, min_length=7, max_length=15, description="IP address of the host machine assigned to the container")
-    host_port: int | None = Field(None, description="Port of the host machine assigned to the container")
+    ip: IPvAnyAddress | None = Field(None, description="IP address of the host machine assigned to the container")
+    port: int | None = Field(None, description="Port of the host machine assigned to the container")
 
 
 class FullContainer(ContainerID, ContainerData):
     pass
 
 
+# ======================================== REQUEST MODELS ========================================
+class KickRequest(BaseModel):
+    ip: IPvAnyAddress | None = Field(None, description="IP of the host to kick all players safely from")
+    subdomain: str | None = Field(None, min_length=4, max_length=4, description="Subdomain of the container to kick all players from")
+
+    @field_validator("subdomain")
+    @classmethod
+    def validate_subdomain(cls, v: str) -> str:
+        if KeyGenerator.validate(v):
+            return v
+        raise ValueError('Subdomain contains illegal characters')
+    
+
+class ContainerCreateRequest(ContainerData):
+    config: ComposeConfig = Field(..., description="YAML file variables to use for server confguration")
+
+
+class ContainerCreateResponse(FullContainer):
+    initialized: bool = Field(..., description="Flag whether compose.yml was deployed on the host")
+    to_be_deleted: bool = Field(..., description="Flag whether container is set to be deleted")
+    config: ComposeConfig = Field(..., description="Configuration used to generate compose.yml")
+    
+
 # ======================================== RESPONSE MODELS ========================================
 class ListResponse(RootModel):
-    root: list[PlayerData] | list[FullContainer] | list[HostData] = Field(
+    root: list[PlayerData] | list[ContainerCreateResponse] | list[HostData] = Field(
         ...,
         description="List of requested resources"
     )
-
-
-class KickRequest(BaseModel):
-    ip: str | None = Field(None, min_length=7, max_length=15, description="IP of the host to kick all players safely from")
-    subdomain: str | None = Field(None, min_length=4, max_length=4, description="Subdomain of the container to kick all players from")
 
 
 class StatusResponse(BaseModel):
@@ -125,7 +152,7 @@ class MessageResponse(BaseModel):
 # ======================================== HELPERS ========================================
 def handle_errors(func):
     @wraps(func)
-    def wrapper(*args, **kwargs):
+    def endpoint_wrapper(*args, **kwargs):
         operation = func.__name__.replace("_", " ")
         try:
             return func(*args, **kwargs)
@@ -142,7 +169,7 @@ def handle_errors(func):
             raise HTTPException(
                 status_code=HTTPstatus.HTTP_500_INTERNAL_SERVER_ERROR
             )
-    return wrapper
+    return endpoint_wrapper
 
 
 # ======================================== FastAPI ========================================
@@ -174,7 +201,8 @@ class API:
                 response = await call_next(request)
                 
                 if request.url.path not in ("/status", "/favicon.ico"):
-                    logger.info(f"API: {request.method:<7} {request.url.path} from {client_ip} : {response.status_code}")
+                    logger.info(f"API: {client_ip} - {request.method:<7} {request.url.path} "
+                                + f"{response.status_code}")
                 
                 return response
             except Exception as e:
@@ -196,17 +224,28 @@ class API:
             return player
 
 
-        @self.app.post("/container/add", response_model=FullContainer)
+        @self.app.post("/container/add", response_model=ContainerCreateResponse)
         @handle_errors
-        def add_container(container: ContainerData):
-            subd = self.server._sessions.containers.storage.create(container.ip, container.port)
-            return FullContainer(subdomain=subd, **container.model_dump())
+        def add_container(data: ContainerCreateRequest):
+            subd = self.server._sessions.containers.create(
+                str(data.ip), data.port, data.config)
+            return ContainerCreateResponse(
+                subdomain=subd,
+                ip=data.ip,
+                port=data.port,
+                initialized=False,
+                to_be_deleted=False,
+                config=data.config
+            )
 
 
         @self.app.delete("/container/remove", response_model=ContainerID)
         @handle_errors
         def remove_container(container: ContainerID):
-            self.server._sessions.interrupt("Your server has been removed", subdomain=container.subdomain)
+            self.server._sessions.interrupt(
+                "Your server has been removed",
+                subdomain=container.subdomain
+            )
             self.server._sessions.containers.delete(container.subdomain)
             return container
 
@@ -223,7 +262,10 @@ class API:
         @self.app.delete("/host/remove", response_model=HostID)
         @handle_errors
         def remove_host(host: HostID):
-            self.server._sessions.interrupt("Your server has been removed", ip=str(host.ip))
+            self.server._sessions.interrupt(
+                "Your server has been removed",
+                ip=str(host.ip)
+            )
             self.server._sessions.containers.hosts.delete(str(host.ip))
             return host
 
@@ -235,8 +277,13 @@ class API:
             if bool(target.ip) == bool(target.subdomain):
                 raise ValueError("specify precisely a single argument (ip OR subdomain)")
             
-            self.server._sessions.interrupt(subdomain=target.subdomain or "", ip=target.ip or "")
-            return MessageResponse(message=f"all players from {target.subdomain}{target.ip} kicked")
+            self.server._sessions.interrupt(
+                subdomain=target.subdomain or "", 
+                ip=str(target.ip) or ""
+            )
+            return MessageResponse(
+                message=f"all players from {target.subdomain}{target.ip} kicked"
+            )
 
 
         @self.app.get("/status", response_model=StatusResponse)
@@ -255,24 +302,28 @@ class API:
         @handle_errors
         def list(resource: Literal["players", "hosts", "containers"]):
             lst = []
-            match resource:
-                case "players":
-                    query = self.server._whitelist.storage.list()
-                    lst = [PlayerData(**row) for row in query]
-                case "containers":
-                    query = self.server._sessions.containers.storage.list()
-                    lst = [FullContainer(**{
-                            **row,
-                            "port": int(row["port"])
-                        }) for row in query]
-                case "hosts":
-                    query = self.server._sessions.containers.hosts.storage.list()
-                    lst = [HostData(**{
+
+            if resource == "players":
+                query = self.server._whitelist.storage.list()
+                lst = [PlayerData(**row) for row in query]
+
+            elif resource == "containers":
+                query = self.server._sessions.containers.storage.list()
+                lst = [ContainerCreateResponse(**{
                         **row,
-                        "ip": ip_address(row["ip"]),
-                        "mac": MacAddress(row["mac"]),
-                        "path": Path(row["path"])
-                        }) for row in query]
+                        "port": int(row["port"]),
+                        "config": ComposeConfig.model_validate_json(row["config"])
+                    }) for row in query]
+                
+            elif resource == "hosts":
+                query = self.server._sessions.containers.hosts.storage.list()
+                lst = [HostData(**{
+                    **row,
+                    "ip": ip_address(row["ip"]),
+                    "mac": MacAddress(row["mac"]),
+                    "path": Path(row["path"])
+                    }) for row in query]
+                
             return ListResponse(root=lst)
             
         

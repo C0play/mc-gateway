@@ -2,8 +2,9 @@ import time
 import threading
 import subprocess
 from abc import ABC, abstractmethod
+from typing import Callable, cast
 
-from ..host.host import BaseHost
+from ..host.host import BaseHost, SSHHost
 from ..utils.logger import logger
 
 
@@ -99,15 +100,26 @@ class SSHContainer(BaseContainer):
     A container implementation that manages a Docker container on a remote host via SSH.
     """
 
-    def __init__(self, subdomain: str, port: int, host: BaseHost) -> None:
+    def __init__(
+            self, subdomain: str, port: int, host: SSHHost,
+            deploy: Callable[..., None] | None = None,
+    ) -> None:
         """
         Initializes the SSHContainer.
-        """
-        super().__init__(subdomain, port, host)
-        
-        self.path: str = f"{self.host.path}/server_{port}"
-        self.name: str = f"mc_{port}"
 
+        Args:
+            deploy: If provided, called on first start to deploy the container
+                    (e.g. write compose.yml and mark as initialized). If None,
+                    the container is assumed to already be deployed.
+        """
+        
+        super().__init__(subdomain, port, host)
+        self.host = cast(SSHHost, self.host)
+        
+        self.path = self._generate_path(host.path, port)
+        self.name = self._generate_name(port)
+
+        self._deploy_fn = deploy
         self._start_lock = threading.Lock()
         self._stop_lock = threading.Lock()
 
@@ -122,7 +134,7 @@ class SSHContainer(BaseContainer):
             cmd = ["ssh", f"{self.host.user}@{self.host.ip}", "docker", "inspect", "-f", "{{.State.Running}}", self.name]
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
             
-            logger.debug(f"container.is_online inspect: rc={res.returncode} stderr={res.stderr.strip()} stdout={res.stdout.strip()}")
+            # logger.debug(f"container.is_online inspect: rc={res.returncode} stderr={res.stderr.strip()} stdout={res.stdout.strip()}")
             
             return res.returncode == 0 and res.stdout.strip().lower() == "true"
 
@@ -151,6 +163,8 @@ class SSHContainer(BaseContainer):
                     if not self.host.start():
                         return False
                 
+                self._deploy()
+
                 if self.is_online():
                     return True
 
@@ -186,7 +200,7 @@ class SSHContainer(BaseContainer):
                 res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
                 logger.info(f"stopping container {self.name} on {self.host.ip}:{self.port} (rc={res.returncode})")
                 
-                attempts, wait_time = 6, 10
+                attempts, wait_time = 20, 3
                 for _ in range(attempts):
                     time.sleep(wait_time)
                     if not self.is_online():
@@ -203,3 +217,30 @@ class SSHContainer(BaseContainer):
             raise TimeoutError(f"{self.subdomain} online after {e.args[0]}s ")
         except Exception as e:
             raise RuntimeError(f"{self.subdomain} stop failed: {e}")
+
+    
+    def _deploy(self) -> None:
+        """Call deploy callback on first start if not yet initialized."""
+
+        if self._deploy_fn is None:
+            logger.debug(f"container {self.subdomain} already deployed")
+            return
+        
+        logger.info(f"Initializing {self.subdomain}: deploying compose.yml to {self.host.ip}")
+        try:
+            self._deploy_fn()
+        except Exception as e:
+            logger.error(f"deployment of {self.subdomain} failed {e}")
+        else:
+            logger.info(f"deployment of {self.subdomain} succeeded")
+            self._deploy_fn = None
+
+
+    @staticmethod
+    def _generate_path(host_path: str, port: int) -> str:
+        return f"{host_path}/server_{port}"
+
+
+    @staticmethod
+    def _generate_name(port: int) -> str:
+        return f"mc_{port}"
