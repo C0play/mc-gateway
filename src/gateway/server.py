@@ -133,7 +133,7 @@ class Server:
             if handshake.data[1] is Null.serverbound.handshake and handshake.data[5] == State.Status:
                 self._proces_status_req(client)
             elif handshake.data[1] is Null.serverbound.handshake and handshake.data[5] == State.Login:
-                self._process_login(client, handshake)
+                self._handle_login(client, handshake)
             else:
                 raise ValueError(f"")
             
@@ -195,7 +195,7 @@ class Server:
             raise RuntimeError(f"status: {e}")
 
 
-    def _process_login(self, client: Client, handshake: Packet):
+    def _handle_login(self, client: Client, handshake: Packet):
         try:
             subdomain, domain = handshake.data[3].split('.', 1)
 
@@ -208,6 +208,7 @@ class Server:
 
                 if not self._whitelist.validate(username = username, subdomain = subdomain):
                     logger.warning(f"{client} unknown player tried logging in: {(username, subdomain)}")
+                    login_start.respond("You are not whitelisted.", "red")
                     return
                 
                 client.username = username
@@ -228,6 +229,10 @@ class Server:
         
         try:
             session = self._sessions.open(client, subdomain)
+        except (ValueError, KeyError) as e:
+            logger.info(f"{client} denied connection: {e}")
+            login_start.respond("Your server was deleted.", "red")
+            return
         except Exception as e:
             logger.exception(f"failed to create session for {client}: {e}")
             return

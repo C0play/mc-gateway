@@ -62,5 +62,7 @@ class Client():
 
 
     def __str__(self) -> str:
-        return f"Client<{self.ip}, {self.port}, {self.username}, {self.subdomain}>"
+        unam_str = ", " + self.username if self.username else ""
+        subd_str = ", " + self.subdomain if self.subdomain else ""
+        return f"Client<{self.ip}, {self.port}" + unam_str + subd_str + ">"
 

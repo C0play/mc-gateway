@@ -24,6 +24,11 @@ class KeyGenerator:
 
 
     @classmethod
+    def validate(cls, key: str) -> bool:
+        return all(c in cls.ALPHABET for c in key)
+
+
+    @classmethod
     def load(cls, used_keys: list[str]) -> None:
         """
         Loads already used keys.
