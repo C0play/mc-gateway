@@ -155,6 +155,15 @@ def send_cmd(argv: list[str]) -> int:
             {"username": args.name, "subdomain": args.subdomain}
     ))
 
+    # player kick <name>
+    parser_kick_player = player_subparsers.add_parser("kick", help="Kick a specific player")
+    parser_kick_player.add_argument("name", help="Player username")
+    parser_kick_player.set_defaults(
+        func=lambda args: (
+            "POST", f"/player/kick/{args.name}",
+            {}
+    ))
+
     # Container commands group
     container_parser = subparsers.add_parser("container", help="Container management")
     container_subparsers = container_parser.add_subparsers(dest="subcommand", required=True)
@@ -165,20 +174,13 @@ def send_cmd(argv: list[str]) -> int:
     parser_add_container.add_argument("mc_port", type=int, help="Container Minecraft port")
     parser_add_container.add_argument("rcon_port", type=int, help="Container RCON port")
     parser_add_container.add_argument("--ram", dest="ram", type=str, help="Server memory")
-    parser_add_container.add_argument("-v", dest="version", type=str, help="Game version")
-    parser_add_container.add_argument(
-        "-d",
-        dest="difficulty",
-        type=str,
-        choices=("peaceful", "easy", "normal", "hard"),
-        help="Game difficulty",
-    )
+    parser_add_container.add_argument("--version", dest="version", type=str, help="Game version")
     parser_add_container.add_argument("--viewd", dest="view_d", type=int, help="Game view distance")
     parser_add_container.add_argument(
         "--modr",
         dest="modr",
         choices=("release", "beta", "alpha"),
-        help="Mod release type list"
+        help="Mod release type"
     )
     parser_add_container.add_argument("--mods", dest="mods", nargs="+", help="Mod list")
     parser_add_container.set_defaults(
@@ -207,13 +209,40 @@ def send_cmd(argv: list[str]) -> int:
             {"subdomain": args.subdomain}
     ))
 
-    # container kickall <subdomain>
-    parser_kickall_container = container_subparsers.add_parser("kickall", help="Kick all players connected to container")
-    parser_kickall_container.add_argument("subdomain", help="Container subdomain")
-    parser_kickall_container.set_defaults(
+    # container update <subdomain>
+    parser_update_container = container_subparsers.add_parser("update", help="Update server configuration")
+    parser_update_container.add_argument("subdomain", help="Server subdomain")
+    parser_update_container.add_argument("--ip", dest="ip", help="New host IP address")
+    parser_update_container.add_argument("--mc-port", dest="mc_port", type=int, help="New Minecraft port")
+    parser_update_container.add_argument("--rcon-port", dest="rcon_port", type=int, help="New RCON port")
+    parser_update_container.add_argument("--ram", dest="ram", type=str, help="New RAM allocation")
+    parser_update_container.add_argument("-v", dest="version", type=str, help="New Minecraft version")
+    parser_update_container.add_argument("--viewd", dest="view_d", type=int, help="New view distance")
+    parser_update_container.add_argument("--mods", dest="mods", nargs="+", help="New mod list (overwrites existing)")
+    parser_update_container.set_defaults(
         func=lambda args: (
-            "POST", "/kick",
-            {"subdomain": args.subdomain}
+            "PUT", f"/container/update/{args.subdomain}",
+            {
+                "ip": args.ip,
+                "mc_port": args.mc_port,
+                "rcon_port": args.rcon_port,
+                "config": {k: v for k, v in {
+                    "ram": args.ram,
+                    "version": args.version,
+                    "difficulty": args.difficulty,
+                    "view_distance": args.view_d,
+                    "modrinth_projects": args.mods,
+                }.items() if v is not None}
+            }
+    ))
+
+    # container kicka <subdomain>
+    parser_kicka_container = container_subparsers.add_parser("kicka", help="Kick all players connected to container")
+    parser_kicka_container.add_argument("subdomain", help="Container subdomain")
+    parser_kicka_container.set_defaults(
+        func=lambda args: (
+            "POST", f"/container/kick/{args.subdomain}",
+            {}
     ))
 
     # Host commands group
@@ -240,14 +269,30 @@ def send_cmd(argv: list[str]) -> int:
             "DELETE", "/host/remove",
             {"ip": args.ip}
     ))
-    
-    # host kickall <ip>
-    parser_kickall_host = host_subparsers.add_parser("kickall", help="Kick all players connected to host")
-    parser_kickall_host.add_argument("ip", help="Host IP address")
-    parser_kickall_host.set_defaults(
+
+    # host update <ip>
+    parser_update_host = host_subparsers.add_parser("update", help="Update host parameters")
+    parser_update_host.add_argument("ip", help="Host IP address")
+    parser_update_host.add_argument("--mac", dest="mac", help="New MAC address")
+    parser_update_host.add_argument("--user", dest="user", help="New SSH user")
+    parser_update_host.add_argument("--path", dest="path", help="New base path")
+    parser_update_host.set_defaults(
         func=lambda args: (
-            "POST", "/kick",
-            {"ip": args.ip}
+            "PUT", f"/host/update/{args.ip}",
+            {k: v for k, v in {
+                "mac": args.mac,
+                "user": args.user,
+                "path": args.path
+            }.items() if v is not None}
+    ))
+    
+    # host kicka <ip>
+    parser_kicka_host = host_subparsers.add_parser("kicka", help="Kick all players connected to host")
+    parser_kicka_host.add_argument("ip", help="Host IP address")
+    parser_kicka_host.set_defaults(
+        func=lambda args: (
+            "POST", f"/host/kick/{args.ip}",
+            {}
     ))
 
     # Parse arguments skipping argv[0] (script name)

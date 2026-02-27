@@ -31,7 +31,6 @@ class ComposeConfig(BaseModel):
     """
     ram: str = Field("2G", description="The amount of memory to allocate (e.g., '2G', '4G')")
     version: str = Field("LATEST", description="The Minecraft version to use")
-    difficulty: Difficulty = Field("easy", description="Game difficulty (peaceful, easy, normal, hard)")
     view_distance: int = Field(10, ge=1, le=32, description="Server view distance")
     mod_version_type: ReleaseType = Field("release", description="Allowed mod release type for Modrinth projects")
     modrinth_projects: list[str] = Field(default_factory=list, description="List of Modrinth mods URLs or IDs to install")
@@ -47,7 +46,6 @@ class OptComposeConfig(BaseModel):
     """
     ram: str | None = Field(None, description="The amount of memory to allocate (e.g., '2G', '4G')")
     version: str | None = Field(None, description="The Minecraft version to use")
-    difficulty: Difficulty | None = Field(None, description="Game difficulty (peaceful, easy, normal, hard)")
     view_distance: int | None = Field(None, ge=1, le=32, description="Server view distance")
     mod_version_type: ReleaseType | None = Field(None, description="Allowed mod release type for Modrinth projects")
     modrinth_projects: list[str] | None = Field(None, description="List of Modrinth mods URLs or IDs to install")
@@ -90,8 +88,6 @@ def generate_compose(mc_port: int, rcon_port: int, rcon_password: str, config: C
         "INIT_MEMORY": "1024M",
         "MAX_MEMORY": config.ram,
         "TZ": "Europe/Warsaw",
-        "DIFFICULTY": config.difficulty,
-        "FORCE_GAMEMODE": "true",
         "VIEW_DISTANCE": str(config.view_distance),
         "VERSION": config.version,
         "MODRINTH_ALLOWED_VERSION_TYPE": config.mod_version_type,
