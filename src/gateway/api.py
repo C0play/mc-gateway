@@ -23,7 +23,6 @@ from fastapi import (
     Request
 )
 
-from ..utils.composegen import ComposeConfig, OptComposeConfig
 from ..utils.keygen import KeyGenerator
 from ..utils.logger import logger
 from ..utils.validators import (
@@ -31,6 +30,11 @@ from ..utils.validators import (
     validate_absolute_path,
     validate_subdomain,
     check_path_user_consistency
+)
+from ..utils.composegen import (
+    ComposeConfig,
+    OptComposeConfig,
+    PERFORMANCE_MODS
 )
 if TYPE_CHECKING:
     from .server import Server
@@ -256,6 +260,10 @@ class API:
         @self.app.post("/container/add", response_model=FullContainer)
         @handle_errors
         def add_container(data: ContainerCreateRequest):
+            for mod in PERFORMANCE_MODS:
+                if mod not in data.config.modrinth_projects:
+                    data.config.modrinth_projects.append(mod)
+            
             container = self.server._sessions.containers.create(
                 str(data.ip),
                 data.mc_port,
@@ -303,11 +311,17 @@ class API:
                         merged_dict[k] = v
                 
                 new_cfg_obj = ComposeConfig(**merged_dict)
+                
+                for mod in PERFORMANCE_MODS:
+                    if mod not in new_cfg_obj.modrinth_projects:
+                        new_cfg_obj.modrinth_projects.append(mod)
+
                 update_fields['config'] = new_cfg_obj.model_dump_json()
             else:
                 new_cfg_obj = current_cfg
 
             if update_fields:
+                update_fields["initialized"] = False
                 updated_container = self.server._sessions.containers.storage.update(
                     subdomain, **update_fields
                 )
@@ -338,7 +352,7 @@ class API:
         
         @self.app.post("/container/kick/{subdomain}", response_model=MessageResponse)
         @handle_errors
-        def kick_container(subdomain: str):
+        def kick_from_container(subdomain: str):
             self.server._sessions.interrupt(subdomain=subdomain)
             return MessageResponse(
                 message=f"All players from server {subdomain} have been kicked"
@@ -382,7 +396,7 @@ class API:
 
         @self.app.post("/host/kick/{ip}", response_model=MessageResponse)
         @handle_errors
-        def kick_host(ip: IPvAnyAddress):
+        def kick_from_host(ip: IPvAnyAddress):
             self.server._sessions.interrupt(ip=str(ip))
             return MessageResponse(
                 message=f"All players from {ip} have been kicked"

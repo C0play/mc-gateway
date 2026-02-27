@@ -16,6 +16,14 @@ from .validators import validate_ram_allocation
 
 Difficulty: TypeAlias = Literal["peaceful", "easy", "normal", "hard"]
 ReleaseType: TypeAlias = Literal["release", "beta", "alpha"]
+# Default optimization mods for Fabric 1.21.8
+PERFORMANCE_MODS = [
+        "fabric-api:0.133.4+1.21.8",
+        "lithium:mc1.21.8-0.18.1-fabric",
+        "sodium:mc1.21.8-0.7.0-fabric",
+        "c2me-fabric:0.3.4.0.0+1.21.8",
+        "ferrite-core:8.0.0-fabric",
+    ]
 
 class ComposeConfig(BaseModel):
     """
@@ -66,17 +74,8 @@ def generate_compose(mc_port: int, rcon_port: int, rcon_password: str, config: C
         str: The YAML content as a string.
     """
 
-    # Default optimization mods for Fabric
-    performance_mods = [
-        "fabric-api:0.133.4+1.21.8",
-        "lithium:mc1.21.8-0.18.1-fabric",
-        "sodium:mc1.21.8-0.7.0-fabric",
-        "c2me-fabric:0.3.4.0.0+1.21.8",
-        "ferrite-core:8.0.0-fabric",
-    ]
-
     final_mods = config.modrinth_projects.copy()
-    for pm in performance_mods:
+    for pm in PERFORMANCE_MODS:
         if pm not in final_mods:
             final_mods.append(pm)
     

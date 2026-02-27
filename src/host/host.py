@@ -226,16 +226,21 @@ class SSHHost(BaseHost):
         
     
     def deploy(self, mc_port: int, config: str) -> None:
-        """Creates the container directory and writes compose.yml via SCP."""
-
+        """
+        Creates the container directory if needed and writes compose.yml via SCP.
+        """
+        
         path = f"{self.path}/server_{mc_port}"
         filepath = path + "/compose.yml"
+        dir_exists = False
         mkdir_cmd = ["ssh", f"{self.user}@{self.ip}", "mkdir", "-p", path]
         logger.debug(mkdir_cmd)
-        try:
+        try: 
             subprocess.run(mkdir_cmd, capture_output=True, text=True, check=True)
         except CalledProcessError as e:
-            raise RuntimeError(f"failed to create directory {path} on {self.ip}")
+            if "File exists" not in e.output: 
+                raise RuntimeError(f"failed to create directory {path} on {self.ip}: {e}")
+            dir_exists = True
         except Exception as e:
             raise RuntimeError(e)
 
@@ -250,8 +255,9 @@ class SSHHost(BaseHost):
             scp_cmd = ["scp", tmp_path, f"{self.user}@{self.ip}:{filepath}"]
             subprocess.run(scp_cmd, capture_output=True, text=True, check=True)
         except Exception as e:
-            rmdir_cmd = ["ssh", f"{self.user}@{self.ip}", "rmdir", path]
-            subprocess.run(rmdir_cmd, capture_output=True, text=True, check=True)
+            if not dir_exists:
+                rmdir_cmd = ["ssh", f"{self.user}@{self.ip}", "rmdir", path]
+                subprocess.run(rmdir_cmd, capture_output=True, text=True, check=True)
             raise RuntimeError(f"failed to transfer {filepath} to {self.ip}: {e}")
         finally:
             os.unlink(tmp_path)

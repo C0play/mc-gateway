@@ -98,10 +98,7 @@ class ContainerManager(BaseContainerManager):
 
     
     def create(self, ip: str, mc_port: int, rcon_port: int, config: ComposeConfig) -> ContainerRecord:
-        """
-        Persists container record with serialized config and encrypted RCON password.
-        Does NOT require host to be online.
-        """
+        
         raw_password = secrets.token_urlsafe(24)
         encrypted_password = CryptoProvider.encrypt(raw_password)
         
