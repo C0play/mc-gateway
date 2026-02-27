@@ -1,3 +1,4 @@
+import secrets
 import threading
 from abc import ABC, abstractmethod
 from typing import cast
@@ -9,6 +10,7 @@ from ..host.host import BaseHost, SSHHost
 from ..utils.composegen import generate_compose, ComposeConfig
 from ..utils.models import Container as ContainerRecord
 from ..utils.logger import logger
+from ..utils.crypto import CryptoProvider
 
 
 class BaseContainerManager(ABC):
@@ -21,14 +23,15 @@ class BaseContainerManager(ABC):
 
 
     @abstractmethod
-    def create(self, ip: str, port: int, config: ComposeConfig) -> ContainerRecord:
+    def create(self, ip: str, mc_port: int, rcon_port: int, config: ComposeConfig) -> ContainerRecord:
         """
         Creates a new container entry and persists configuration for deferred deployment.
         The compose.yml will be deployed to the remote host on the container's first start.
 
         Args:
             ip: IP address of the host.
-            port: Port for the new container.
+            mc_port: Minecraft port for the new container.
+            rcon_port: RCON port for the new container.
             config: Configuration for compose.yml generation.
 
         Returns:
@@ -94,13 +97,18 @@ class ContainerManager(BaseContainerManager):
         self.active_containers: dict[str, SSHContainer] = {}
 
     
-    def create(self, ip: str, port: int, config: ComposeConfig) -> ContainerRecord:
+    def create(self, ip: str, mc_port: int, rcon_port: int, config: ComposeConfig) -> ContainerRecord:
         """
-        Persists container record with serialized config. Does NOT require host to be online.
+        Persists container record with serialized config and encrypted RCON password.
+        Does NOT require host to be online.
         """
+        raw_password = secrets.token_urlsafe(24)
+        encrypted_password = CryptoProvider.encrypt(raw_password)
+        
         config_json = config.model_dump_json()
-        record = self.storage.create(ip, port, config_json)
-        logger.info(f"Container {record.subdomain} registered on {ip}:{port}. Will be initialized on first start.")
+        record = self.storage.create(ip, mc_port, rcon_port, encrypted_password, config_json)
+        
+        logger.info(f"Container {record.subdomain} registered on {ip}:{mc_port}.")
         return record
 
 
@@ -120,7 +128,12 @@ class ContainerManager(BaseContainerManager):
             record = records[0]
             
             ip = cast(str, record.host.ip)
-            port = cast(int, record.port)
+            mc_port = cast(int, record.mc_port)
+            rcon_port = cast(int, record.rcon_port)
+            
+            # Decrypt the RCON password at runtime
+            encrypted_pwd = cast(str, record.rcon_password)
+            rcon_password = CryptoProvider.decrypt(encrypted_pwd)
 
             # Get associated host
             try:
@@ -133,13 +146,21 @@ class ContainerManager(BaseContainerManager):
 
             deploy = None
             if not record.initialized:
-                cfg = generate_compose(port, ComposeConfig.model_validate_json(cast(str, record.config)))
-                def _deploy(port=port, cfg=cfg, subdomain=subdomain):
-                    host.deploy(port, cfg)
+                cfg = generate_compose(
+                    mc_port,
+                    rcon_port,
+                    rcon_password,
+                    ComposeConfig.model_validate_json(cast(str, record.config))
+                )
+                def _deploy(mc_port=mc_port, cfg=cfg, subdomain=subdomain):
+                    host.deploy(mc_port, cfg)
                     self.storage.update(subdomain, initialized=True)
                 deploy = _deploy
 
-            container = SSHContainer(subdomain, port, cast(SSHHost, host), deploy)
+            container = SSHContainer(
+                subdomain, cast(SSHHost, host), mc_port,
+                rcon_port, rcon_password, deploy
+            )
             self.active_containers[subdomain] = container
             return container
         
@@ -196,14 +217,14 @@ class ContainerManager(BaseContainerManager):
                 self.active_containers.pop(subdomain, None)
         except Exception as e:
             raise RuntimeError(f"failed to stop {subdomain} before deletion: {e}")
-        self._delete_container_files(subdomain, container.host, container.port)
+        self._delete_container_files(subdomain, container.host, container.mc_port)
 
 
-    def _delete_container_files(self, subdomain: str, host: BaseHost, port: int) -> None:
+    def _delete_container_files(self, subdomain: str, host: BaseHost, mc_port: int) -> None:
         """Removes a container's directory and storage record."""
         try:
             logger.info(f"Removing container {subdomain} from disk")
-            host.remove(port)
+            host.remove(mc_port)
         except Exception as e:
             raise RuntimeError(f"failed to delete directory of {subdomain}: {e}")
         try:
@@ -221,8 +242,8 @@ class ContainerManager(BaseContainerManager):
         logger.info(f"executing deferred deletions of {len(lst)} containers")
         for record in lst:
             subdomain = cast(str, record.subdomain)
-            port = cast(int, record.port)
-            self._delete_container_files(subdomain, host, port)
+            mc_port = cast(int, record.mc_port)
+            self._delete_container_files(subdomain, host, mc_port)
 
 
     def list(self) -> list[dict[str, str]]:

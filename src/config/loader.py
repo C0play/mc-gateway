@@ -27,7 +27,9 @@ def _load_storage() -> StorageConfig:
     postgres_password = os.getenv("PG_PASSWORD")
     postgres_host = os.getenv("PG_HOST")
     postgres_port = os.getenv("PG_PORT")
-    if postgres_name and postgres_user and postgres_password and postgres_host and postgres_port:
+    rcon_key = os.getenv("RCON_KEY")
+    if (postgres_name and postgres_user and postgres_password 
+        and postgres_host and postgres_port and rcon_key):
         postgres = PostgresConfig(
             postgres_name,
             postgres_user,
@@ -36,7 +38,7 @@ def _load_storage() -> StorageConfig:
             int(postgres_port)
         )
         db_init(postgres)
-        return StorageConfig(postgres)
+        return StorageConfig(postgres, rcon_key)
 
     raise ConfigException(f"failed to load storage configuration")
 

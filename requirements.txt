@@ -5,3 +5,4 @@ uvicorn
 peewee
 pyyaml
 psycopg2-binary
+cryptography

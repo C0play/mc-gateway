@@ -159,10 +159,11 @@ def send_cmd(argv: list[str]) -> int:
     container_parser = subparsers.add_parser("container", help="Container management")
     container_subparsers = container_parser.add_subparsers(dest="subcommand", required=True)
 
-    # container add <ip> <port>
+    # container add <ip> <mc_port> <rcon_port>
     parser_add_container = container_subparsers.add_parser("add", help="Add a container mapping")
     parser_add_container.add_argument("ip", help="Container IP address")
-    parser_add_container.add_argument("port", type=int, help="Container port")
+    parser_add_container.add_argument("mc_port", type=int, help="Container Minecraft port")
+    parser_add_container.add_argument("rcon_port", type=int, help="Container RCON port")
     parser_add_container.add_argument("--ram", dest="ram", type=str, help="Server memory")
     parser_add_container.add_argument("-v", dest="version", type=str, help="Game version")
     parser_add_container.add_argument(
@@ -185,7 +186,8 @@ def send_cmd(argv: list[str]) -> int:
             "POST", "/container/add",
             {
                 "ip": args.ip,
-                "port": args.port,
+                "mc_port": args.mc_port,
+                "rcon_port": args.rcon_port,
                 "config": {k: v for k, v in {
                     "ram": args.ram,
                     "version": args.version,

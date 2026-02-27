@@ -117,14 +117,17 @@ class SessionManager(BaseSessionManager):
         
         clients = []
         with self.sessions_lock:
-            if subdomain:
-                clients = [s.client for s in self.sessions.values() if s.container.subdomain == subdomain]
-            elif ip:
-                clients = [s.client for s in self.sessions.values() if s.container.host.ip == ip]
+            snapshot = self.sessions
+        
+        if subdomain:
+            clients = [s.client for s in snapshot.values() if s.container.subdomain == subdomain]
+        elif ip:
+            clients = [s.client for s in snapshot.values() if s.container.host.ip == ip]
 
-        logger.debug(f"Interrupting sessions of {clients} from {ip}{subdomain}")
+        logger.debug(f"Interrupting sessions of {len(clients)} clients from {ip}{subdomain}")
+            
         for client in clients:
-            self.sessions[client].server_disconnect(reason)
+            snapshot[client].server_disconnect(reason)
 
 
     def close(self, client: Client) -> None:

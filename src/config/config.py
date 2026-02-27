@@ -15,6 +15,7 @@ class PostgresConfig():
 class StorageConfig():
     """Wrapper for storage-related configurations."""
     storage: PostgresConfig
+    rcon_key: str
 
 
 @dataclass(frozen=True)

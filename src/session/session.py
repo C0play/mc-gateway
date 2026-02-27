@@ -6,6 +6,8 @@ from ..gateway.client import Client
 from ..container.container import BaseContainer
 from ..packet.packet import Packet
 from ..utils.logger import logger
+from ..utils.rcon import RCON
+
 
 
 class Session():
@@ -56,9 +58,21 @@ class Session():
             self.client.socket.setblocking(True)
             self.container_socket.setblocking(True)
 
-            while True and not self._server_disconnect_signal:
+            while True:
                 rlist, _, _ = select.select([self.client.socket, self.container_socket], [], [])
                 
+                if self._server_disconnect_signal:
+                    with RCON(self.container.host.ip, self.container.rcon_port, self.container.rcon_password) as rcon:
+                        if not rcon.login():
+                            logger.error(f"RCON authentication failed for {self.client.subdomain}")
+                            break
+                        logger.info(f"RCON sent /kick to {self.client.subdomain}")
+                        rcon.send(f"/kick {self.client.username} {self._server_disconnect_reason}")
+                    
+                    self._transfer(self.container_socket, self.client.socket, "container disconnected before transferring kick")
+                    break
+
+
                 if self.client.socket in rlist:
                     self._transfer(self.client.socket, self.container_socket, "disconnected during forwarding")
                     last_send = time.monotonic()
@@ -72,6 +86,7 @@ class Session():
                     total_rtt += time.monotonic() - last_send
                     rtt_samples += 1
                     last_send = None
+
 
         except StopIteration as e:
             logger.warning(e)
@@ -140,7 +155,7 @@ class Session():
 
                 try:
                     self.container_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    self.container_socket.connect((self.container.host.ip, self.container.port))
+                    self.container_socket.connect((self.container.host.ip, self.container.mc_port))
                     
                     logger.info(f"{self.client} connected to {self.container.subdomain} on attempt {attempt + 1}")
                     return

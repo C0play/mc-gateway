@@ -38,7 +38,9 @@ class Host(BaseModel):
 class Container(BaseModel):
     """Peewee model representing a Docker container."""
     subdomain = pewe.CharField(max_length=4, unique=True, primary_key=True)
-    port = pewe.IntegerField()
+    mc_port = pewe.IntegerField()
+    rcon_port = pewe.IntegerField()
+    rcon_password = pewe.TextField(null=True) # Encrypted at rest
     host = pewe.ForeignKeyField(Host, backref="containers", field='ip', null=True, on_delete='SET NULL')
     initialized = pewe.BooleanField(default=False)
     to_be_deleted = pewe.BooleanField(default=False)
@@ -46,11 +48,11 @@ class Container(BaseModel):
 
     class Meta:
         indexes = (
-            (('port', 'host'), True),
+            (('mc_port', 'host'), True),
+            (('rcon_port', 'host'), True),
         )
-
     def __str__(self):
-        return f"{self.subdomain}:{self.port}"
+        return f"{self.subdomain}:{self.mc_port}"
 
 
 

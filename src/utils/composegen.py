@@ -52,12 +52,14 @@ class OptComposeConfig(BaseModel):
         return v
 
 
-def generate_compose(port: int, config: ComposeConfig) -> str:
+def generate_compose(mc_port: int, rcon_port: int, rcon_password: str, config: ComposeConfig) -> str:
     """
     Generates a compose.yml file for a Minecraft server.
 
     Args:
-        port: External docker port for the server.
+        mc_port: External docker port for the Minecraft server.
+        rcon_port: External docker port for RCON.
+        rcon_password: The RCON password for the server.
         config: The configuration object containing generation parameters.
 
     Returns:
@@ -83,6 +85,7 @@ def generate_compose(port: int, config: ComposeConfig) -> str:
     environment = {
         "UID": 1001,
         "GID": 1001,
+        "RCON_PASSWORD": rcon_password,
         "EULA": "TRUE",
         "TYPE": "FABRIC", # Default to Fabric for performance mods support
         "INIT_MEMORY": "1024M",
@@ -106,13 +109,14 @@ def generate_compose(port: int, config: ComposeConfig) -> str:
         "services": {
             "mc": {
                 "image": "itzg/minecraft-server:latest",
-                "container_name": f"mc_{port}",
+                "container_name": f"mc_{mc_port}",
                 "cpu_count": 2,
                 "tty": True,
                 "stdin_open": True,
                 "stop_grace_period": "60s",
                 "ports": [
-                f"{port}:25565"
+                f"{mc_port}:25565",
+                f"{rcon_port}:25575",
                 ],
                 "environment": environment,
                 "volumes": [

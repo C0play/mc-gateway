@@ -122,12 +122,14 @@ class ContainerID(BaseModel):
 
 class ContainerData(BaseModel):
     ip: IPvAnyAddress = Field(..., description="IP address of the host machine assigned to the container")
-    port: int = Field(..., description="Port of the host machine assigned to the container")
+    mc_port: int = Field(..., description="Minecraft port of the host machine assigned to the container")
+    rcon_port: int = Field(..., description="RCON port of the host machine assigned to the container")
 
 
 class OptContainerData(BaseModel):
     ip: IPvAnyAddress | None = Field(None, description="IP address of the host machine assigned to the container")
-    port: int | None = Field(None, description="Port of the host machine assigned to the container")
+    mc_port: int | None = Field(None, description="Minecraft port of the host machine assigned to the container")
+    rcon_port: int | None = Field(None, description="RCON port of the host machine assigned to the container")
 
 
 class FullContainer(ContainerID, ContainerData):
@@ -256,13 +258,15 @@ class API:
         def add_container(data: ContainerCreateRequest):
             container = self.server._sessions.containers.create(
                 str(data.ip),
-                data.port,
+                data.mc_port,
+                data.rcon_port,
                 data.config
             )
             return FullContainer(
                 subdomain=str(container.subdomain),
                 ip=data.ip,
-                port=data.port,
+                mc_port=data.mc_port,
+                rcon_port=data.rcon_port,
                 initialized=False,
                 to_be_deleted=False,
                 config=data.config
@@ -283,8 +287,10 @@ class API:
             update_fields = {}
             if data.ip:
                 update_fields['host'] = str(data.ip)
-            if data.port:
-                update_fields['port'] = data.port
+            if data.mc_port:
+                update_fields['mc_port'] = data.mc_port
+            if data.rcon_port:
+                update_fields['rcon_port'] = data.rcon_port
 
             # Merge config fields
             current_cfg = ComposeConfig.model_validate_json(str(old_container.config))
@@ -311,7 +317,8 @@ class API:
             return FullContainer(
                 subdomain = str(updated_container.subdomain),
                 ip = updated_container.host.ip,
-                port = cast(int, updated_container.port),
+                mc_port = cast(int, updated_container.mc_port),
+                rcon_port = cast(int, updated_container.rcon_port),
                 initialized = bool(updated_container.initialized),
                 to_be_deleted = bool(updated_container.to_be_deleted),
                 config = new_cfg_obj
@@ -404,7 +411,8 @@ class API:
                 query = self.server._sessions.containers.storage.list()
                 lst = [FullContainer(**{
                         **row,
-                        "port": int(row["port"]),
+                        "mc_port": int(row["mc_port"]),
+                        "rcon_port": int(row["rcon_port"]),
                         "config": ComposeConfig.model_validate_json(row["config"])
                     }) for row in query]
                 

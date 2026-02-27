@@ -20,13 +20,15 @@ class BaseContainerRepository(ABC):
     
 
     @abstractmethod
-    def create(self, ip: str, port: int, config_json: str) -> Container:
+    def create(self, ip: str, mc_port: int, rcon_port: int, rcon_password: str, config_json: str) -> Container:
         """
         Creates a new container record.
 
         Args:
             ip: The IP address of the host running the container.
-            port: The port exposed by the container.
+            mc_port: The Minecraft port exposed by the container.
+            rcon_port: The RCON port exposed by the container.
+            rcon_password: The RCON password for the container.
             config_json: Serialized ComposeConfig (JSON) to persist for deferred deployment.
 
         Returns:
@@ -104,18 +106,20 @@ class SQLContainerRepository(BaseContainerRepository):
         super().__init__(key_generator)
         
          
-    def create(self, ip: str, port: int, config_json: str) -> Container:
+    def create(self, ip: str, mc_port: int, rcon_port: int, rcon_password: str, config_json: str) -> Container:
         try:
             new_key = self.key.gen()
-            container: Container = Container.create(
+            container = Container.create(
                 subdomain=new_key,
                 host=ip,
-                port=port,
+                mc_port=mc_port,
+                rcon_port=rcon_port,
+                rcon_password=rcon_password,
                 config=config_json,
             )
             return container
         except Exception as e:
-            raise RuntimeError(f"failed to create container {ip}:{port}: {e}")
+            raise RuntimeError(f"failed to create container {ip}:{mc_port}: {e}")
 
 
     def read(self, **filters) -> list[Container]:
@@ -152,7 +156,8 @@ class SQLContainerRepository(BaseContainerRepository):
         return [{
                 "subdomain": row.subdomain, 
                 "ip": row.host_id,
-                "port": str(row.port),
+                "mc_port": str(row.mc_port),
+                "rcon_port": str(row.rcon_port),
                 "to_be_deleted": row.to_be_deleted,
                 "initialized": row.initialized,
                 "config": row.config

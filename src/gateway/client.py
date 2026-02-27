@@ -25,11 +25,11 @@ class Client():
 
         Args:
             client_socket: The client's socket object.
-            addr: A tuple containing (ip, port).
+            addr: A tuple containing (ip, mc_port).
         """
         self.socket = client_socket
         self.ip = addr[0]
-        self.port = addr[1]
+        self.mc_port = addr[1]
 
         self.username: str | None = None
         self.subdomain: str | None = None
@@ -54,15 +54,15 @@ class Client():
     def __eq__(self, other) -> bool:
         if not isinstance(other, Client):
             return False
-        return self.port == other.port if self.ip == other.ip else False
+        return self.mc_port == other.mc_port if self.ip == other.ip else False
 
 
     def __hash__(self) -> int:
-        return hash((self.ip, self.port))
+        return hash((self.ip, self.mc_port))
 
 
     def __str__(self) -> str:
         unam_str = ", " + self.username if self.username else ""
         subd_str = ", " + self.subdomain if self.subdomain else ""
-        return f"Client<{self.ip}, {self.port}" + unam_str + subd_str + ">"
+        return f"Client<{self.ip}, {self.mc_port}" + unam_str + subd_str + ">"
 

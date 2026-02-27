@@ -11,10 +11,15 @@ from ..utils.logger import logger
 
 class BaseContainer(ABC):
     
-    def __init__(self, subdomain: str, port: int, host: BaseHost) -> None:
+    def __init__(
+            self, subdomain: str, host: BaseHost, mc_port: int,
+            rcon_port: int, rcon_password: str
+        ) -> None:
         self.subdomain = subdomain
-        self.port = port
         self.host = host
+        self.mc_port = mc_port
+        self.rcon_port = rcon_port
+        self.rcon_password = rcon_password 
 
 
     @abstractmethod
@@ -72,11 +77,11 @@ class BaseContainer(ABC):
         Returns a dictionary representation of the container's connection parameters.
 
         Returns:
-             dict[str, str]: Dictionary containing 'ip' and 'port'.
+             dict[str, str]: Dictionary containing 'ip' and 'mc_port'.
         """
         return {
             "ip": self.host.ip,  
-            "port": str(self.port)
+            "mc_port": str(self.mc_port)
         }
 
     def __str__(self) -> str:
@@ -101,7 +106,7 @@ class SSHContainer(BaseContainer):
     """
 
     def __init__(
-            self, subdomain: str, port: int, host: SSHHost,
+            self, subdomain: str, host: SSHHost, mc_port: int, rcon_port: int, rcon_password: str,
             deploy: Callable[..., None] | None = None,
     ) -> None:
         """
@@ -113,11 +118,11 @@ class SSHContainer(BaseContainer):
                     the container is assumed to already be deployed.
         """
         
-        super().__init__(subdomain, port, host)
+        super().__init__(subdomain, host, mc_port, rcon_port, rcon_password)
         self.host = cast(SSHHost, self.host)
         
-        self.path = self._generate_path(host.path, port)
-        self.name = self._generate_name(port)
+        self.path = self._generate_path(host.path, mc_port)
+        self.name = self._generate_name(mc_port)
 
         self._deploy_fn = deploy
         self._start_lock = threading.Lock()
@@ -170,7 +175,7 @@ class SSHContainer(BaseContainer):
 
                 cmd = ["ssh", f"{self.host.user}@{self.host.ip}", "docker", "compose", "-f", self.path + "/compose.yml", "up", "-d"]
                 res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-                logger.info(f"starting container {self.name} on {self.host.ip}:{self.port} (rc={res.returncode})")
+                logger.info(f"starting container {self.name} on {self.host.ip}:{self.mc_port} (rc={res.returncode})")
 
                 attempts, wait_time = 6, 10
                 for _ in range(attempts):
@@ -198,13 +203,13 @@ class SSHContainer(BaseContainer):
 
                 cmd = ["ssh", f"{self.host.user}@{self.host.ip}", "docker", "compose", "-f", self.path + "/compose.yml", "down"]
                 res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-                logger.info(f"stopping container {self.name} on {self.host.ip}:{self.port} (rc={res.returncode})")
+                logger.info(f"stopping container {self.name} on {self.host.ip}:{self.mc_port} (rc={res.returncode})")
                 
                 attempts, wait_time = 20, 3
                 for _ in range(attempts):
                     time.sleep(wait_time)
                     if not self.is_online():
-                        logger.info(f"stopped container {self.name} on {self.host.ip}:{self.port}")
+                        logger.info(f"stopped container {self.name} on {self.host.ip}:{self.mc_port}")
                         return True
                 
                 raise TimeoutError(attempts * wait_time)
@@ -237,10 +242,10 @@ class SSHContainer(BaseContainer):
 
 
     @staticmethod
-    def _generate_path(host_path: str, port: int) -> str:
-        return f"{host_path}/server_{port}"
+    def _generate_path(host_path: str, mc_port: int) -> str:
+        return f"{host_path}/server_{mc_port}"
 
 
     @staticmethod
-    def _generate_name(port: int) -> str:
-        return f"mc_{port}"
+    def _generate_name(mc_port: int) -> str:
+        return f"mc_{mc_port}"

@@ -68,12 +68,12 @@ class BaseHost(ABC):
         ...
     
     @abstractmethod
-    def deploy(self, port: int, config: str) -> None:
+    def deploy(self, mc_port: int, config: str) -> None:
         """
-        Deploys container configuration for the given port.
+        Deploys container configuration for the given Minecraft port.
 
         Args:
-            port: The port number identifying the container.
+            mc_port: The Minecraft port number identifying the container.
             config: Text content of the configuration to deploy.
 
         Raises:
@@ -82,12 +82,12 @@ class BaseHost(ABC):
         ...
     
     @abstractmethod
-    def remove(self, port: int) -> None:
+    def remove(self, mc_port: int) -> None:
         """
-        Removes the container identified by port from the host.
+        Removes the container identified by the Minecraft port from the host.
 
         Args:
-            port: The port number identifying the container.
+            mc_port: The port number identifying the container.
 
         Raises:
             RuntimeError: If removal fails.
@@ -225,10 +225,10 @@ class SSHHost(BaseHost):
             raise RuntimeError(f"host {self.ip} stop failed: {e}")
         
     
-    def deploy(self, port: int, config: str) -> None:
+    def deploy(self, mc_port: int, config: str) -> None:
         """Creates the container directory and writes compose.yml via SCP."""
 
-        path = f"{self.path}/server_{port}"
+        path = f"{self.path}/server_{mc_port}"
         filepath = path + "/compose.yml"
         mkdir_cmd = ["ssh", f"{self.user}@{self.ip}", "mkdir", "-p", path]
         logger.debug(mkdir_cmd)
@@ -257,10 +257,10 @@ class SSHHost(BaseHost):
             os.unlink(tmp_path)
 
 
-    def remove(self, port: int) -> None:
+    def remove(self, mc_port: int) -> None:
         """Removes the container directory via SSH rm -rf."""
 
-        path = f"{self.path}/server_{port}"
+        path = f"{self.path}/server_{mc_port}"
         check_cmd = ["ssh", f"{self.user}@{self.ip}", "test", "-d", path]
         res = subprocess.run(check_cmd, capture_output=True, text=True)
         if res.returncode != 0:
