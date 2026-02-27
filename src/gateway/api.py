@@ -146,19 +146,6 @@ class ContainerUpdateRequest(OptContainerData):
     config: OptComposeConfig = Field(..., description="YAML file variables to use for server confguration")
 
 
-# ======================================== REQUEST MODELS ========================================
-class KickRequest(BaseModel):
-    ip: IPvAnyAddress | None = Field(None, description="IP of the host to kick all players safely from")
-    subdomain: str | None = Field(None, min_length=4, max_length=4, description="Subdomain of the container to kick all players from")
-
-    @field_validator("subdomain")
-    @classmethod
-    def validate_subdomain(cls, v: str | None) -> str | None:
-        if v is not None:
-             return validate_subdomain(v)
-        return v
-
-
 # ======================================== RESPONSE MODELS ========================================
 class ListResponse(RootModel):
     root: list[PlayerData] | list[FullContainer] | list[HostData] = Field(
@@ -249,8 +236,21 @@ class API:
         @self.app.delete("/player/remove", response_model=PlayerID)
         @handle_errors
         def remove_player(player: PlayerID):
+            self.server._sessions.interrupt(
+                reason="You were removed from the wgitelist",
+                username=player.username
+            )
             self.server._whitelist.storage.delete(player.username, player.subdomain)
             return player
+        
+        
+        @self.app.post("/player/kick/{username}", response_model=MessageResponse)
+        @handle_errors
+        def kick_player(username: str):
+            self.server._sessions.interrupt(username=username)
+            return MessageResponse(
+                message=f"Player {username} has been kicked"
+            )
 
 
         @self.app.post("/container/add", response_model=FullContainer)
@@ -334,6 +334,15 @@ class API:
             )
             self.server._sessions.containers.delete(container.subdomain)
             return container
+        
+        
+        @self.app.post("/container/kick/{subdomain}", response_model=MessageResponse)
+        @handle_errors
+        def kick_container(subdomain: str):
+            self.server._sessions.interrupt(subdomain=subdomain)
+            return MessageResponse(
+                message=f"All players from server {subdomain} have been kicked"
+            )
 
 
         @self.app.post("/host/add", response_model=HostData)
@@ -359,7 +368,7 @@ class API:
                 path=Path(str(new_host.path)),
             )
 
-
+        
         @self.app.delete("/host/remove", response_model=HostID)
         @handle_errors
         def remove_host(host: HostID):
@@ -371,18 +380,12 @@ class API:
             return host
 
 
-        @self.app.post("/kick", response_model=MessageResponse)
+        @self.app.post("/host/kick/{ip}", response_model=MessageResponse)
         @handle_errors
-        def kick_all(target: KickRequest):
-            if bool(target.ip) == bool(target.subdomain):
-                raise ValueError("specify precisely a single argument (ip OR subdomain)")
-            
-            self.server._sessions.interrupt(
-                subdomain=target.subdomain or "", 
-                ip=str(target.ip) or ""
-            )
+        def kick_host(ip: IPvAnyAddress):
+            self.server._sessions.interrupt(ip=str(ip))
             return MessageResponse(
-                message=f"all players from {target.subdomain}{target.ip} kicked"
+                message=f"All players from {ip} have been kicked"
             )
 
 
@@ -396,7 +399,6 @@ class API:
                 hosts=len(self.server._sessions.containers.hosts.list()),
             )
 
-            
 
         @self.app.get("/list/{resource}", response_model=ListResponse)
         @handle_errors

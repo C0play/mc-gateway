@@ -41,12 +41,13 @@ class BaseSessionManager(ABC):
         ...
 
     @abstractmethod
-    def interrupt(self, reason: str, subdomain: str = "", ip: str = "") -> None:
+    def interrupt(self, reason: str, username: str = "", subdomain: str = "", ip: str = "") -> None:
         """
         Force closes all client sessions matching the criteria.
         
         Args:
              reason: The disconnect reason sent to clients.
+             username: (Optional) Kick specific user.
              subdomain: (Optional) Filter by container subdomain.
              ip: (Optional) Filter by host IP.
 
@@ -109,17 +110,18 @@ class SessionManager(BaseSessionManager):
             return session
 
 
-    def interrupt(self, reason: str = "You were kicked", subdomain: str = "", ip: str = "") -> None:
+    def interrupt(self, reason: str = "You were kicked", username: str = "", subdomain: str = "", ip: str = "") -> None:
 
-        if not (subdomain or ip):
-            logger.error(f"ip and subdomain")
-            raise ValueError(f"one of [ip, subdomain] have to be specified")
+        if not (username or subdomain or ip):
+            raise ValueError(f"one of [username, subdomain, ip] has to be specified")
         
         clients = []
         with self.sessions_lock:
             snapshot = self.sessions
         
-        if subdomain:
+        if username:
+            clients = list(filter(lambda c: c.username == username, list(snapshot.keys())))
+        elif subdomain:
             clients = [s.client for s in snapshot.values() if s.container.subdomain == subdomain]
         elif ip:
             clients = [s.client for s in snapshot.values() if s.container.host.ip == ip]
