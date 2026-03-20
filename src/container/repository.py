@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
 
-
 from ..utils.models import Container
 from ..utils.keygen import KeyGenerator
 
@@ -20,7 +19,7 @@ class BaseContainerRepository(ABC):
     
 
     @abstractmethod
-    def create(self, ip: str, mc_port: int, rcon_port: int, rcon_password: str, config_json: str) -> Container:
+    def create(self, ip: str, mc_port: int, rcon_port: int, rcon_password: str, config: dict) -> Container:
         """
         Creates a new container record.
 
@@ -29,7 +28,7 @@ class BaseContainerRepository(ABC):
             mc_port: The Minecraft port exposed by the container.
             rcon_port: The RCON port exposed by the container.
             rcon_password: The RCON password for the container.
-            config_json: Serialized ComposeConfig (JSON) to persist for deferred deployment.
+            config: Serialized ComposeConfig to persist for deferred deployment.
 
         Returns:
             Container: The newly created Container instance.
@@ -106,7 +105,7 @@ class SQLContainerRepository(BaseContainerRepository):
         super().__init__(key_generator)
         
          
-    def create(self, ip: str, mc_port: int, rcon_port: int, rcon_password: str, config_json: str) -> Container:
+    def create(self, ip: str, mc_port: int, rcon_port: int, rcon_password: str, config: dict) -> Container:
         try:
             new_key = self.key.gen()
             container = Container.create(
@@ -115,7 +114,7 @@ class SQLContainerRepository(BaseContainerRepository):
                 mc_port=mc_port,
                 rcon_port=rcon_port,
                 rcon_password=rcon_password,
-                config=config_json,
+                config=config,
             )
             return container
         except Exception as e:

@@ -5,9 +5,10 @@ from typing import cast
 
 from .repository import BaseContainerRepository
 from .container import BaseContainer, SSHContainer
+from .models import ContainerConfig
 from ..host.manager import BaseHostManager
 from ..host.host import BaseHost, SSHHost
-from ..utils.composegen import generate_compose, ComposeConfig
+from ..utils.composegen import ComposeGenerator
 from ..utils.models import Container as ContainerRecord
 from ..utils.logger import logger
 from ..utils.crypto import CryptoProvider
@@ -17,13 +18,19 @@ class BaseContainerManager(ABC):
     """Manages the lifecycle and active state of containers."""
 
     @abstractmethod
-    def __init__(self, container_repo: BaseContainerRepository, host_manager: BaseHostManager) -> None:
+    def __init__(self,
+        compose_gen: ComposeGenerator,
+        container_repo: BaseContainerRepository,
+        host_manager: BaseHostManager
+    ) -> None:
+
+        self. compose_gen = compose_gen
         self.storage = container_repo
         self.hosts = host_manager
 
 
     @abstractmethod
-    def create(self, ip: str, mc_port: int, rcon_port: int, config: ComposeConfig) -> ContainerRecord:
+    def create(self, ip: str, mc_port: int, rcon_port: int, config: ContainerConfig) -> ContainerRecord:
         """
         Creates a new container entry and persists configuration for deferred deployment.
         The compose.yml will be deployed to the remote host on the container's first start.
@@ -90,20 +97,24 @@ class BaseContainerManager(ABC):
 
 class ContainerManager(BaseContainerManager):
 
-    def __init__(self, container_repo: BaseContainerRepository, host_manager: BaseHostManager) -> None:
-        super().__init__(container_repo, host_manager)
+    def __init__(self,
+        compose_gen: ComposeGenerator,
+        container_repo: BaseContainerRepository,
+        host_manager: BaseHostManager
+    ) -> None:
+        super().__init__(compose_gen, container_repo, host_manager)
 
         self.lock = threading.Lock()
         self.active_containers: dict[str, SSHContainer] = {}
 
     
-    def create(self, ip: str, mc_port: int, rcon_port: int, config: ComposeConfig) -> ContainerRecord:
+    def create(self, ip: str, mc_port: int, rcon_port: int, config: ContainerConfig) -> ContainerRecord:
         
         raw_password = secrets.token_urlsafe(24)
         encrypted_password = CryptoProvider.encrypt(raw_password)
         
-        config_json = config.model_dump_json()
-        record = self.storage.create(ip, mc_port, rcon_port, encrypted_password, config_json)
+        config_payload = config.model_dump(mode="json")
+        record = self.storage.create(ip, mc_port, rcon_port, encrypted_password, config_payload)
         
         logger.info(f"Container {record.subdomain} registered on {ip}:{mc_port}.")
         return record
@@ -112,27 +123,23 @@ class ContainerManager(BaseContainerManager):
     def load(self, subdomain: str) -> SSHContainer:
 
         with self.lock:
+
             if subdomain in self.active_containers:
                 return self.active_containers[subdomain]
             
             try:
-                records = self.storage.read(subdomain=subdomain)
+                container_record = self.storage.read(subdomain=subdomain)[0]
             except Exception:
                 logger.exception(f"failed to get container {subdomain} parameters")
                 raise
-            if not records:
-                raise KeyError(f"container {subdomain} not found")
-            record = records[0]
+
+            ip = cast(str, container_record.host.ip)
+            mc_port = cast(int, container_record.mc_port)
+            rcon_port = cast(int, container_record.rcon_port)
             
-            ip = cast(str, record.host.ip)
-            mc_port = cast(int, record.mc_port)
-            rcon_port = cast(int, record.rcon_port)
-            
-            # Decrypt the RCON password at runtime
-            encrypted_pwd = cast(str, record.rcon_password)
+            encrypted_pwd = cast(str, container_record.rcon_password)
             rcon_password = CryptoProvider.decrypt(encrypted_pwd)
 
-            # Get associated host
             try:
                 host = self.hosts.load(ip)
                 host.register_callback(
@@ -142,25 +149,26 @@ class ContainerManager(BaseContainerManager):
                 raise RuntimeError(f"Host {ip} for container {subdomain} not found")
 
             deploy = None
-            if not record.initialized:
-                cfg = generate_compose(
-                    mc_port,
-                    rcon_port,
-                    rcon_password,
-                    ComposeConfig.model_validate_json(cast(str, record.config))
-                )
-                def _deploy(mc_port=mc_port, cfg=cfg, subdomain=subdomain):
+            if not container_record.initialized:
+                compose = self.compose_gen.generate(subdomain, rcon_password)
+                def _deploy(mc_port=mc_port, cfg=compose, subdomain=subdomain):
                     host.deploy(mc_port, cfg)
                     self.storage.update(subdomain, initialized=True)
                 deploy = _deploy
 
+
             container = SSHContainer(
-                subdomain, cast(SSHHost, host), mc_port,
-                rcon_port, rcon_password, deploy
+                subdomain,
+                cast(SSHHost, host),
+                mc_port,
+                rcon_port,
+                rcon_password,
+                deploy
             )
             self.active_containers[subdomain] = container
+
             return container
-        
+
 
     def unload(self, subdomain: str) -> None:
 

@@ -1,21 +1,13 @@
-from typing import (
-    Any,
-    Literal,
-    TypeAlias
-)
-
 import yaml
-from pydantic import (
-    BaseModel,
-    Field,
-    field_validator
-)
+from typing import Any
 
-from .validators import validate_ram_allocation
+from ..host.repository import BaseHostRepository
+from ..host.models import HostConfig
+from ..container.repository import BaseContainerRepository
+from ..container.models import ContainerConfig
 
 
-Difficulty: TypeAlias = Literal["peaceful", "easy", "normal", "hard"]
-ReleaseType: TypeAlias = Literal["release", "beta", "alpha"]
+
 # Default optimization mods for Fabric 1.21.8
 PERFORMANCE_MODS = [
         "fabric-api:0.133.4+1.21.8",
@@ -25,104 +17,94 @@ PERFORMANCE_MODS = [
         "ferrite-core:8.0.0-fabric",
     ]
 
-class ComposeConfig(BaseModel):
-    """
-    Configuration model for generating docker-compose.yml files.
-    """
-    ram: str = Field("2G", description="The amount of memory to allocate (e.g., '2G', '4G')")
-    version: str = Field("LATEST", description="The Minecraft version to use")
-    view_distance: int = Field(10, ge=1, le=32, description="Server view distance")
-    mod_version_type: ReleaseType = Field("release", description="Allowed mod release type for Modrinth projects")
-    modrinth_projects: list[str] = Field(default_factory=list, description="List of Modrinth mods URLs or IDs to install")
 
-    @field_validator("ram")
-    @classmethod
-    def validate_ram(cls, v: str) -> str:
-        return validate_ram_allocation(v)
+class ComposeGenerator:
 
-class OptComposeConfig(BaseModel):
-    """
-    Configuration model for generating docker-compose.yml files.
-    """
-    ram: str | None = Field(None, description="The amount of memory to allocate (e.g., '2G', '4G')")
-    version: str | None = Field(None, description="The Minecraft version to use")
-    view_distance: int | None = Field(None, ge=1, le=32, description="Server view distance")
-    mod_version_type: ReleaseType | None = Field(None, description="Allowed mod release type for Modrinth projects")
-    modrinth_projects: list[str] | None = Field(None, description="List of Modrinth mods URLs or IDs to install")
-
-    @field_validator("ram")
-    @classmethod
-    def validate_ram(cls, v: str | None) -> str | None:
-        if v is not None:
-            return validate_ram_allocation(v)
-        return v
+    def __init__(self, host_repo: BaseHostRepository, container_repo: BaseContainerRepository) -> None:
+        self.hosts = host_repo
+        self.containers = container_repo
 
 
-def generate_compose(mc_port: int, rcon_port: int, rcon_password: str, config: ComposeConfig) -> str:
-    """
-    Generates a compose.yml file for a Minecraft server.
+    def generate(self, subdomain: str, rcon_password: str) -> str:
+        """
+        Generates a compose.yml file for a Minecraft server.
 
-    Args:
-        mc_port: External docker port for the Minecraft server.
-        rcon_port: External docker port for RCON.
-        rcon_password: The RCON password for the server.
-        config: The configuration object containing generation parameters.
+        Returns:
+            str: The YAML content as a string.
 
-    Returns:
-        str: The YAML content as a string.
-    """
+        Raises:
+            ValueError: If an argument fails validation.
+        """
 
-    final_mods = config.modrinth_projects.copy()
-    for pm in PERFORMANCE_MODS:
-        if pm not in final_mods:
-            final_mods.append(pm)
-    
-    custom_server_properties = ["LOG_IPS=true"]
+        container_record = self.containers.read(subdomain=subdomain)[0]
+        host_record = self.hosts.read(ip=container_record.host)[0]
 
-    environment = {
-        "UID": 1001,
-        "GID": 1001,
-        "RCON_PASSWORD": rcon_password,
-        "EULA": "TRUE",
-        "TYPE": "FABRIC", # Default to Fabric for performance mods support
-        "INIT_MEMORY": "1024M",
-        "MAX_MEMORY": config.ram,
-        "TZ": "Europe/Warsaw",
-        "VIEW_DISTANCE": str(config.view_distance),
-        "VERSION": config.version,
-        "MODRINTH_ALLOWED_VERSION_TYPE": config.mod_version_type,
-        "PAUSE_WHEN_EMPTY_SECONDS": "300",
-        "PLAYER_IDLE_TIMEOUT": "10",
-        "ENABLE_ROLLING_LOGS": "true",
-        "LOG_TIMESTAMP": "true",
-    }
+        compose_cfg = ContainerConfig.model_validate(container_record.config)
+        host_cfg = HostConfig.model_validate(host_record.config)
 
-    environment["MODRINTH_PROJECTS"] = ",".join(final_mods)
-    environment["CUSTOM_SERVER_PROPERTIES"] = ",".join(custom_server_properties)
-    
-    compose_content: dict[str, Any] = {
-        "services": {
-            "mc": {
-                "image": "itzg/minecraft-server:latest",
-                "container_name": f"mc_{mc_port}",
-                "cpu_count": 2,
-                "tty": True,
-                "stdin_open": True,
-                "stop_grace_period": "60s",
-                "ports": [
-                f"{mc_port}:25565",
-                f"{rcon_port}:25575",
-                ],
-                "environment": environment,
-                "volumes": [
-                    "./data:/data"
-                ],
+
+        container_ram_val = ComposeGenerator.to_Mb(compose_cfg.ram)
+        init_ram_val = ComposeGenerator.to_Mb(host_cfg.init_memory)
+        max_ram_val = ComposeGenerator.to_Mb(host_cfg.max_memory)
+        if not (init_ram_val <= container_ram_val and container_ram_val <= max_ram_val):
+            raise ValueError(f"container memory is not within [init_memory, max_memory] range.")
+
+        final_mods = compose_cfg.modrinth_projects.copy()
+        for pm in PERFORMANCE_MODS:
+            if pm not in final_mods:
+                final_mods.append(pm)
+        
+        custom_server_properties = ["LOG_IPS=true"]
+
+        environment = {
+            "UID": host_cfg.uid,
+            "GID": host_cfg.gid,
+            "RCON_PASSWORD": rcon_password,
+            "EULA": "TRUE",
+            "TYPE": "FABRIC", # Default to Fabric for performance mods support
+            "INIT_MEMORY": host_cfg.init_memory,
+            "MAX_MEMORY": host_cfg.max_memory,
+            "TZ": host_cfg.timezone,
+            "VIEW_DISTANCE": str(compose_cfg.view_distance),
+            "VERSION": compose_cfg.version,
+            "MODRINTH_ALLOWED_VERSION_TYPE": compose_cfg.mod_version_type,
+            "PAUSE_WHEN_EMPTY_SECONDS": "300",
+            "PLAYER_IDLE_TIMEOUT": "10",
+            "ENABLE_ROLLING_LOGS": "true",
+            "LOG_TIMESTAMP": "true",
+        }
+
+        environment["MODRINTH_PROJECTS"] = ",".join(final_mods)
+        environment["CUSTOM_SERVER_PROPERTIES"] = ",".join(custom_server_properties)
+        
+        compose_content: dict[str, Any] = {
+            "services": {
+                "mc": {
+                    "image": "itzg/minecraft-server:latest",
+                    "container_name": f"mc_{container_record.mc_port}",
+                    "cpu_count": host_cfg.cpu_count,
+                    "tty": True,
+                    "stdin_open": True,
+                    "stop_grace_period": "60s",
+                    "ports": [
+                    f"{container_record.mc_port}:25565",
+                    f"{container_record.rcon_port}:25575",
+                    ],
+                    "environment": environment,
+                    "volumes": [
+                        "./data:/data"
+                    ],
+                }
             }
         }
-    }
+        
+        return yaml.dump(
+            compose_content, 
+            default_flow_style=False, 
+            sort_keys=False
+        )
     
-    return yaml.dump(
-        compose_content, 
-        default_flow_style=False, 
-        sort_keys=False
-    )
+
+    @staticmethod
+    def to_Mb(ram: str) -> int:
+        return int(ram[:-1]) * (1024 if ram[-1] == "G" else 1)

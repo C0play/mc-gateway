@@ -8,7 +8,6 @@ from ..host.host import BaseHost, SSHHost
 from ..utils.logger import logger
 
 
-
 class BaseContainer(ABC):
     
     def __init__(
@@ -121,7 +120,7 @@ class SSHContainer(BaseContainer):
         super().__init__(subdomain, host, mc_port, rcon_port, rcon_password)
         self.host = cast(SSHHost, self.host)
         
-        self.path = self._generate_path(host.path, mc_port)
+        self.path = self._generate_path(str(host.config.path), mc_port)
         self.name = self._generate_name(mc_port)
 
         self._deploy_fn = deploy

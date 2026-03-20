@@ -1,13 +1,15 @@
 from abc import ABC, abstractmethod
-from ..utils.models import Host
 from peewee import IntegrityError
+
+from ..utils.models import Host
+from .models import HostConfig
 
 
 class BaseHostRepository(ABC):
     """A base class for managing host parameters stored in persistent storage"""
     
     @abstractmethod
-    def create(self, ip: str, mac: str, user: str, path: str) -> Host:
+    def create(self, ip: str, mac: str, user: str, path: str, config: dict) -> Host:
         """
         Creates a new host record.
 
@@ -16,6 +18,7 @@ class BaseHostRepository(ABC):
             mac: Host MAC address.
             user: SSH username.
             path: Base path on the host.
+            config: JSON-serialized HostConfig.
 
         Returns:
             Host: The newly created Host instance.
@@ -85,9 +88,9 @@ class SQLHostRepository(BaseHostRepository):
     Implementation of host storage using Peewee ORM.
     """
     
-    def create(self, ip: str, mac: str, user: str, path: str) -> Host:
+    def create(self, ip: str, mac: str, user: str, path: str, config: dict) -> Host:
         try:
-            return Host.create(ip=ip, mac=mac, user=user, path=path)
+            return Host.create(ip=ip, mac=mac, user=user, path=path, config=config)
         except (KeyError, IntegrityError) as e:
             raise KeyError(f"failed to add host: {e}")
         except Exception as e:
@@ -124,7 +127,6 @@ class SQLHostRepository(BaseHostRepository):
         return [{
                 "ip": h.ip,
                 "mac": h.mac,
-                "user": h.user,
-                "path": h.path
+                "config": h.config,
             } for h in hosts
         ]

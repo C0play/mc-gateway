@@ -9,13 +9,15 @@ from abc import ABC, abstractmethod
 from typing import Callable
 
 from ..utils.logger import logger
+from .models import HostConfig
 
 
 class BaseHost(ABC):
     
-    def __init__(self, ip: str, mac: str) -> None:
+    def __init__(self, ip: str, mac: str, config: HostConfig) -> None:
         self.ip = ip
         self.mac = mac
+        self.config = config
         self.on_start: Callable[['BaseHost'], None] | None = None
 
 
@@ -131,10 +133,11 @@ class SSHHost(BaseHost):
     A host implementation that manages a remote machine via SSH and Wake-on-LAN.
     """
 
-    def __init__(self, ip: str, mac: str, user: str, path: str) -> None:
-        super().__init__(ip, mac)
-        self.user = user
-        self.path = path
+    def __init__(self, ip: str, mac: str, config: HostConfig) -> None:
+        super().__init__(ip, mac, config)
+        
+        self.user = self.config.user
+        self.path = self.config.path
 
         self._start_lock = threading.Lock()
         self._stop_lock = threading.Lock()
@@ -294,6 +297,6 @@ class SSHHost(BaseHost):
     def dict(self) -> dict[str, str]:
         return {
             **super().dict(),
-             "path": self.path,
             "user": self.user,
+            "path": str(self.path),
         }

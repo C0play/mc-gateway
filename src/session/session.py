@@ -62,13 +62,7 @@ class Session():
                 rlist, _, _ = select.select([self.client.socket, self.container_socket], [], [])
                 
                 if self._server_disconnect_signal:
-                    with RCON(self.container.host.ip, self.container.rcon_port, self.container.rcon_password) as rcon:
-                        if not rcon.login():
-                            logger.error(f"RCON authentication failed for {self.client.subdomain}")
-                            break
-                        logger.info(f"RCON sent /kick to {self.client.subdomain}")
-                        rcon.send(f"/kick {self.client.username} {self._server_disconnect_reason}")
-                    
+                    self._send_kick()
                     self._transfer(self.container_socket, self.client.socket, "container disconnected before transferring kick")
                     break
 
@@ -211,6 +205,15 @@ class Session():
         except Exception:
             return True
         
+
+    def _send_kick(self) -> None:
+        with RCON(self.container.host.ip, self.container.rcon_port, self.container.rcon_password) as rcon:
+            if not rcon.login():
+                logger.error(f"RCON authentication failed for {self.client.subdomain}")
+                return
+            logger.info(f"RCON sent /kick to {self.client.subdomain}")
+            rcon.send(f"/kick {self.client.username} {self._server_disconnect_reason}")
+
 
     def server_disconnect(self, reason: str) -> None:
         """

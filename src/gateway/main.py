@@ -3,6 +3,7 @@ from ..config.loader import load_config
 from ..utils.logger import logger
 from ..utils.keygen import KeyGenerator
 from ..utils.crypto import CryptoProvider
+from ..utils.composegen import ComposeGenerator
 
 from ..whitelist.manager import WhitelistManager
 from ..whitelist.repository import SQLWhitelistRepository
@@ -25,16 +26,22 @@ def main():
 
         CryptoProvider.initialize(cfg.storage.rcon_key)
 
-        hosts = SSHHostManager(
-            SQLHostRepository()
-        )
+        host_repo = SQLHostRepository()
+        hosts = SSHHostManager(host_repo)
+
+        container_repo = SQLContainerRepository(KeyGenerator())
+        compose_gen =  ComposeGenerator(host_repo, container_repo)
+        
         containers = ContainerManager(
-            SQLContainerRepository(KeyGenerator()),
+            compose_gen,
+            container_repo,
             hosts
         )
+
         whitelist = WhitelistManager(
             SQLWhitelistRepository()
         )
+
         sessions = SessionManager(
             containers,
             cfg.shutdown

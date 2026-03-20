@@ -98,8 +98,8 @@ class SessionManager(BaseSessionManager):
         
         try:
             container = self.containers.load(subdomain)
-        except:
-            logger.exception(f"failed to get {subdomain} container from manager")
+        except Exception as e:
+            logger.exception(f"failed to get {subdomain} container from manager: {e}")
             raise
         else:
             session = Session(client, container)

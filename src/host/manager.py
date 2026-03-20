@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from typing import cast
 
 from .host import BaseHost, SSHHost
+from .models import HostConfig
 from .repository import BaseHostRepository
 from ..utils.logger import logger
 
@@ -92,9 +93,8 @@ class SSHHostManager(BaseHostManager):
                 raise
             else:
                 mac = cast(str, record.mac)
-                user = cast(str, record.user)
-                path = cast(str, record.path)
-                host = SSHHost(ip, mac, user, path)
+                config = HostConfig.model_validate(record.config)
+                host = SSHHost(ip, mac, config)
                 self.active_hosts[ip] = host
                 return host
 
