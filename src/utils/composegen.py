@@ -2,9 +2,9 @@ import yaml
 from typing import Any
 
 from ..host.repository import BaseHostRepository
-from ..host.models import HostConfig
+from ..api.models.host import HostConfig
 from ..container.repository import BaseContainerRepository
-from ..container.models import ContainerConfig
+from ..api.models.container import ContainerConfig
 
 
 

@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 
 from ..utils.models import Container
 from ..utils.keygen import KeyGenerator
+from ..exceptions.errors import NotFoundError, ServiceError
 
 
 class BaseContainerRepository(ABC):
@@ -34,7 +35,7 @@ class BaseContainerRepository(ABC):
             Container: The newly created Container instance.
 
         Raises:
-            RuntimeError: If creation fails.
+            ServiceError: If creation fails.
         """
         ...
 
@@ -65,7 +66,7 @@ class BaseContainerRepository(ABC):
             Container: The updated Container instance.
 
         Raises:
-            KeyError: If the container does not exist.
+            NotFoundError: If the container does not exist.
         """
         ...
 
@@ -78,16 +79,7 @@ class BaseContainerRepository(ABC):
             subdomain: The subdomain of the container to remove.
         
         Raises:
-            KeyError: If the container does not exist.
-        """
-        ...
-
-    def list(self) -> list[dict[str, str]]:
-        """
-        Returns all stored containers in JSON friendly format.
-
-        Returns:
-             list[dict[str, str]]: List of container dictionaries.
+            NotFoundError: If the container does not exist.
         """
         ...
 
@@ -118,12 +110,14 @@ class SQLContainerRepository(BaseContainerRepository):
             )
             return container
         except Exception as e:
-            raise RuntimeError(f"failed to create container {ip}:{mc_port}: {e}")
+            raise ServiceError(f"failed to create container {ip}:{mc_port}: {e}")
 
 
     def read(self, **filters) -> list[Container]:
         query = Container.select()
         for field, value in filters.items():
+            if value is None:
+                continue
             query = query.where(getattr(Container, field) == value)
         return list(query)
     
@@ -134,7 +128,7 @@ class SQLContainerRepository(BaseContainerRepository):
                     .where(Container.subdomain == subdomain)
                     .execute())
         if rows == 0:
-            raise KeyError(f"container {subdomain} does not exist")
+            raise NotFoundError(f"container {subdomain} does not exist")
         return Container.get_by_id(subdomain)
     
     
@@ -146,18 +140,4 @@ class SQLContainerRepository(BaseContainerRepository):
         rows_deleted = query.execute()
         
         if rows_deleted == 0:
-            raise KeyError(f"container {subdomain} does not exist")
-
-
-    def list(self) -> list[dict[str, str]]:
-
-        query = Container.select()
-        return [{
-                "subdomain": row.subdomain, 
-                "ip": row.host_id,
-                "mc_port": str(row.mc_port),
-                "rcon_port": str(row.rcon_port),
-                "to_be_deleted": row.to_be_deleted,
-                "initialized": row.initialized,
-                "config": row.config
-            } for row in query]
+            raise NotFoundError(f"container {subdomain} does not exist")

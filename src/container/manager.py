@@ -1,17 +1,18 @@
-import secrets
 import threading
 from abc import ABC, abstractmethod
 from typing import cast
 
 from .repository import BaseContainerRepository
 from .container import BaseContainer, SSHContainer
-from .models import ContainerConfig
+from ..api.models.container import ContainerConfig
 from ..host.manager import BaseHostManager
 from ..host.host import BaseHost, SSHHost
 from ..utils.composegen import ComposeGenerator
 from ..utils.models import Container as ContainerRecord
 from ..utils.logger import logger
-from ..utils.crypto import CryptoProvider
+from ..security.crypto import Crypto
+from ..security.tokens import generate_token_urlsafe
+from ..exceptions.errors import NotFoundError, ServiceError
 
 
 class BaseContainerManager(ABC):
@@ -59,8 +60,8 @@ class BaseContainerManager(ABC):
             BaseContainer: The initialized container instance.
 
         Raises:
-            KeyError: If the container parameters cannot be found in storage.
-            RuntimeError: If the associated host cannot be found.
+            NotFoundError: If the container or its host cannot be found.
+            ServiceError: If loading the container or host data fails.
         """
         ...
 
@@ -110,8 +111,8 @@ class ContainerManager(BaseContainerManager):
     
     def create(self, ip: str, mc_port: int, rcon_port: int, config: ContainerConfig) -> ContainerRecord:
         
-        raw_password = secrets.token_urlsafe(24)
-        encrypted_password = CryptoProvider.encrypt(raw_password)
+        raw_password = generate_token_urlsafe(24)
+        encrypted_password = Crypto.encrypt(raw_password)
         
         config_payload = config.model_dump(mode="json")
         record = self.storage.create(ip, mc_port, rcon_port, encrypted_password, config_payload)
@@ -128,25 +129,32 @@ class ContainerManager(BaseContainerManager):
                 return self.active_containers[subdomain]
             
             try:
-                container_record = self.storage.read(subdomain=subdomain)[0]
-            except Exception:
-                logger.exception(f"failed to get container {subdomain} parameters")
+                records = self.storage.read(subdomain=subdomain)
+                if not records:
+                    raise NotFoundError(f"container {subdomain} does not exist")
+                container_record = records[0]
+            except NotFoundError:
                 raise
+            except Exception as e:
+                logger.exception(f"failed to get container {subdomain} parameters")
+                raise ServiceError(f"failed to load container {subdomain}: {e}")
 
             ip = cast(str, container_record.host.ip)
             mc_port = cast(int, container_record.mc_port)
             rcon_port = cast(int, container_record.rcon_port)
             
             encrypted_pwd = cast(str, container_record.rcon_password)
-            rcon_password = CryptoProvider.decrypt(encrypted_pwd)
+            rcon_password = Crypto.decrypt(encrypted_pwd)
 
             try:
                 host = self.hosts.load(ip)
                 host.register_callback(
                     on_start=lambda host: self._cleanup_pending_deletions(host)
                 )
-            except Exception:
-                raise RuntimeError(f"Host {ip} for container {subdomain} not found")
+            except NotFoundError:
+                raise
+            except Exception as e:
+                raise ServiceError(f"failed to load host {ip} for container {subdomain}: {e}")
 
             deploy = None
             if not container_record.initialized:
@@ -192,7 +200,7 @@ class ContainerManager(BaseContainerManager):
 
         records = self.storage.read(subdomain=subdomain)
         if not records:
-            raise KeyError(f"container {subdomain} does not exist")
+            raise NotFoundError(f"container {subdomain} does not exist")
         
         if not records[0].initialized:
             logger.info(f"Removing container {subdomain} from storage (not initialized)")
@@ -206,7 +214,7 @@ class ContainerManager(BaseContainerManager):
                             +f"host {container.host.ip} is started again")
                 self.storage.update(subdomain, to_be_deleted=True)
             except Exception as e:
-                raise RuntimeError(f"failed to set {subdomain} to be deleted: {e}")
+                raise ServiceError(f"failed to set {subdomain} to be deleted: {e}")
             self.unload(subdomain)
             return
         
@@ -221,7 +229,7 @@ class ContainerManager(BaseContainerManager):
             with self.lock:
                 self.active_containers.pop(subdomain, None)
         except Exception as e:
-            raise RuntimeError(f"failed to stop {subdomain} before deletion: {e}")
+            raise ServiceError(f"failed to stop {subdomain} before deletion: {e}")
         self._delete_container_files(subdomain, container.host, container.mc_port)
 
 
@@ -231,12 +239,12 @@ class ContainerManager(BaseContainerManager):
             logger.info(f"Removing container {subdomain} from disk")
             host.remove(mc_port)
         except Exception as e:
-            raise RuntimeError(f"failed to delete directory of {subdomain}: {e}")
+            raise ServiceError(f"failed to delete directory of {subdomain}: {e}")
         try:
             logger.info(f"Removing container {subdomain} from storage")
             self.storage.delete(subdomain)
         except Exception as e:
-            raise RuntimeError(f"failed to remove {subdomain} from storage: {e}")
+            raise ServiceError(f"failed to remove {subdomain} from storage: {e}")
 
     
     def _cleanup_pending_deletions(self, host: BaseHost) -> None:

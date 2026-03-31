@@ -7,7 +7,7 @@ from pydantic import (
 )
 from pydantic_extra_types.mac_address import MacAddress
 from pydantic_extra_types.timezone_name import TimeZoneName
-from ..utils.validators import (
+from .validators import (
     validate_linux_user,
     validate_absolute_path,
     check_path_user_consistency,
@@ -101,8 +101,6 @@ class OptHostConfig(BaseModel):
         return self
 
 
-
-# ======================================== HOST MODELS ========================================
 
 class HostID(BaseModel):
     ip: IPvAnyAddress = Field(..., description="IP address of the host machine")

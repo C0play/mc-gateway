@@ -1,6 +1,6 @@
 services:
   mc-gateway:
-    image: mc-gateway:latest
+    image: mc-gateway:dev
     container_name: mc-gateway
     depends_on:
       db:
@@ -11,7 +11,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - CONT_IDLE_SEC=300
-      - LOG_LEVEL=INFO
+      - LOG_LEVEL=DEBUG
       - CTRL_PORT=25566
       - SERVER_PORT=25567
     volumes:
@@ -21,7 +21,7 @@ services:
     restart: unless-stopped
   db:
     image: postgres:15
-    container_name: db-mc-gateway
+    container_name: mc-gateway-db
     network_mode: host
     environment:
       POSTGRES_DB: mcgateway

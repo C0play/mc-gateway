@@ -2,11 +2,12 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .keygen import KeyGenerator
+from ....utils.keygen import KeyGenerator
 
 if TYPE_CHECKING:
-    from ..host.models import HostConfig
-    from ..container.models import ContainerConfig
+    from .host import HostConfig
+    from .container import ContainerConfig
+
 
 
 def validate_linux_user(v: str) -> str:

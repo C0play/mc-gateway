@@ -4,6 +4,7 @@ from peewee import fn
 
 from ..utils.logger import logger
 from ..utils.models import Whitelist, Container
+from ..exceptions.errors import NotFoundError, ConflictError, ServiceError
 
 
 
@@ -23,23 +24,21 @@ class BaseWhitelistRepository(ABC):
             Whitelist: The newly created Whitelist instance.
 
         Raises:
-            KeyError: If the container does not exist or the player is already whitelisted.
+            NotFoundError: If the container does not exist.
+            ConflictError: If the player is already whitelisted.
         """
         ...
     
     @abstractmethod
-    def read(self, username: str) -> list[str]:
+    def read(self, **filters) -> list[Whitelist]:
         """
-        Retrieves all subdomains a player is whitelisted on.
+        Retrieves whitelist records matching the given filters.
 
         Args:
-            username: The player's username.
+            **filters: Field names and values to filter by.
 
         Returns:
-            list[str]: A list of subdomains.
-
-        Raises:
-            KeyError: If the player does not exist (is not whitelisted anywhere).
+            list[Whitelist]: Matching Whitelist model instances.
         """
         ...
     
@@ -66,16 +65,7 @@ class BaseWhitelistRepository(ABC):
             subdomain: The server's subdomain.
 
         Raises:
-            KeyError: If the whitelist entry does not exist.
-        """
-        ...
-    
-    def list(self) -> list[dict[str, str]]:
-        """
-        Returns the contents of the whitelist in a JSON-friendly format.
-
-        Returns:
-             list[dict[str, str]]: List of user-subdomains mappings.
+            NotFoundError: If the whitelist entry does not exist.
         """
         ...
 
@@ -94,19 +84,19 @@ class SQLWhitelistRepository(BaseWhitelistRepository):
             )
         except pewe.IntegrityError:
             if not Container.select().where(Container.subdomain == subdomain).exists():
-                 raise KeyError(f"container {subdomain} does not exist")
-            raise KeyError(f"player {username} is already whitelisted on {subdomain}")
+                 raise NotFoundError(f"container {subdomain} does not exist")
+            raise ConflictError(f"player {username} is already whitelisted on {subdomain}")
+        except Exception as e:
+            raise ServiceError(f"failed to add player {username} to {subdomain}: {e}")
 
     
-    def read(self, username: str) -> list[str]:
-        query = (Whitelist
-                    .select(Whitelist.container)
-                    .where(Whitelist.username == username))
-        
-        if not query.exists():
-             raise KeyError(f"player {username} does not exist")
-
-        return [w.container.id for w in query]
+    def read(self, **filters) -> list[Whitelist]:
+        query = Whitelist.select()
+        for field, value in filters.items():
+            if value is None:
+                continue
+            query = query.where(getattr(Whitelist, field) == value)
+        return list(query)
 
 
     def exists(self, fields: dict[str, str]) -> bool:
@@ -132,6 +122,7 @@ class SQLWhitelistRepository(BaseWhitelistRepository):
 
 
     def delete(self, username: str, subdomain: str) -> None:
+        
         query = (Whitelist
                     .delete()
                     .where((Whitelist.username == username) & (Whitelist.container == subdomain))
@@ -139,19 +130,4 @@ class SQLWhitelistRepository(BaseWhitelistRepository):
         rows_deleted = query.execute()
         
         if rows_deleted == 0:
-            raise KeyError(f"player {username} does not exist or is not whitelisted on {subdomain}")
-
-
-    def list(self) -> list[dict[str, str]]:
-        # query = (Whitelist
-        #         .select(
-        #             Whitelist.username,
-        #             fn.array_agg(Whitelist.container).alias('subdomains')
-        #         )
-        #         .group_by(Whitelist.username))
-        query = Whitelist.select()
-        return [{
-            "username": row.username,
-            "subdomain": row.container.subdomain
-            } for row in query
-        ]
+            raise NotFoundError(f"player {username} does not exist or is not whitelisted on {subdomain}")

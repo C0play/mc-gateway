@@ -6,6 +6,7 @@ from typing import Callable, cast
 
 from ..host.host import BaseHost, SSHHost
 from ..utils.logger import logger
+from ..exceptions.errors import ServiceError
 
 
 class BaseContainer(ABC):
@@ -53,7 +54,7 @@ class BaseContainer(ABC):
         
         Raises:
             TimeoutError: If the container fails to become online within the expected time.
-            RuntimeError: If the start command fails.
+            ServiceError: If the start command fails.
         """
         ...
 
@@ -67,7 +68,7 @@ class BaseContainer(ABC):
             
         Raises:
             TimeoutError: If the container fails to stop within the expected time.
-            RuntimeError: If the stop command fails.
+            ServiceError: If the stop command fails.
         """
         ...
 
@@ -145,9 +146,9 @@ class SSHContainer(BaseContainer):
         except subprocess.TimeoutExpired as e:
             return False
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"docker inspect failed for {self.subdomain}: {e}")
+            raise ServiceError(f"docker inspect failed for {self.subdomain}: {e}")
         except Exception as e:
-            raise RuntimeError(f"{self.subdomain} status check failed: {e}")
+            raise ServiceError(f"{self.subdomain} status check failed: {e}")
 
 
     def is_starting(self) -> bool:
@@ -187,11 +188,11 @@ class SSHContainer(BaseContainer):
         except subprocess.TimeoutExpired:
             raise TimeoutError(f"compose up timed out for {self.subdomain}")
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"compose up failed for {self.subdomain}: {e}" + e.stdout + e.stderr)
+            raise ServiceError(f"compose up failed for {self.subdomain}: {e}" + e.stdout + e.stderr)
         except TimeoutError as e:
             raise TimeoutError(f"{self.subdomain} was offline after {e.args[0]}s")
         except Exception as e:
-            raise RuntimeError(f"{self.subdomain} start failed: {e}")
+            raise ServiceError(f"{self.subdomain} start failed: {e}")
         
 
     def stop(self) -> bool:
@@ -214,13 +215,13 @@ class SSHContainer(BaseContainer):
                 raise TimeoutError(attempts * wait_time)
         
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"docker compose down failed for {self.subdomain}: {e.stderr}")
+            raise ServiceError(f"docker compose down failed for {self.subdomain}: {e.stderr}")
         except subprocess.TimeoutExpired:
             raise TimeoutError(f"compose down timed out for {self.subdomain}")
         except TimeoutError as e:
             raise TimeoutError(f"{self.subdomain} online after {e.args[0]}s ")
         except Exception as e:
-            raise RuntimeError(f"{self.subdomain} stop failed: {e}")
+            raise ServiceError(f"{self.subdomain} stop failed: {e}")
 
     
     def _deploy(self) -> None:

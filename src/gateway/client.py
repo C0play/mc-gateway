@@ -48,7 +48,7 @@ class Client():
             self.socket.close()
         except Exception as e:
             logger.error(f"{self} closing client failed: {e}")
-            raise RuntimeError(f"{self} closing client {e}")
+            raise ConnectionError(f"{self} closing client {e}")
     
 
     def __eq__(self, other) -> bool:

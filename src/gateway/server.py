@@ -8,13 +8,19 @@ from subprocess import CalledProcessError
 
 from ..utils.logger import logger
 from ..packet.packet import Packet, Null, Status, Login
+from ..exceptions.errors import (
+    BadRequestError,
+    ConflictError,
+    NotFoundError,
+    ServiceError,
+)
 
 from ..config.config import Config
 from ..whitelist.manager import WhitelistManager
 from ..session.manager import SessionManager
 
 from .client import Client, State
-from .api import API
+from ..api.api import API
 
 
 
@@ -34,7 +40,7 @@ class Server:
             sessions: The session manager.
         
         Raises:
-            RuntimeError: If socket binding or initialization fails.
+            ServiceError: If socket binding or initialization fails.
         """
         try:
             self._shutdown = False
@@ -55,12 +61,12 @@ class Server:
                 self._server_socket.bind((self.config.server.ip, self.config.server.port))
                 self._server_socket.listen(self.config.server.max_clients)
             except Exception as e:
-                raise RuntimeError(f"Minecraft socket: {e}")
+                raise ServiceError(f"Minecraft socket: {e}")
             
             logger.info(f"server listening on {self.config.server.ip}:[mc:{self.config.server.port}, api:{self.config.server.control_port}]")
         
         except Exception as e:
-            raise RuntimeError(f"Exception during server init: {e}")
+            raise ServiceError(f"Exception during server init: {e}")
     
 
     def start(self) -> None:
@@ -135,7 +141,7 @@ class Server:
             elif handshake.data[1] is Null.serverbound.handshake and handshake.data[5] == State.Login:
                 self._handle_login(client, handshake)
             else:
-                raise ValueError(f"")
+                raise BadRequestError("unsupported handshake state")
             
         except (NotImplementedError, ConnectionError) as e:
             logger.warning(f"{client}: {e}")
@@ -168,7 +174,7 @@ class Server:
             logger.warning(f"{client} disconnected during handshake")
             return
         except Exception as e:
-            raise RuntimeError(f"handshake: {e}")
+            raise ServiceError(f"handshake: {e}")
 
 
     def _proces_status_req(self, client):
@@ -192,7 +198,7 @@ class Server:
         except NotImplementedError as e:
             logger.warning(f"{client} {e}")
         except Exception as e:
-            raise RuntimeError(f"status: {e}")
+            raise ServiceError(f"status: {e}")
 
 
     def _handle_login(self, client: Client, handshake: Packet):
@@ -222,14 +228,14 @@ class Server:
         except (ConnectionError, ConnectionResetError, BrokenPipeError) as e:
             logger.warning(f"{client} disconnected during login")
         except Exception as e:
-            raise RuntimeError(f"{client} login: {e}")
+            raise ServiceError(f"{client} login: {e}")
 
 
     def _handle_session(self, client: Client, subdomain: str, handshake: Packet, login_start: Packet) -> None:
         
         try:
             session = self._sessions.open(client, subdomain)
-        except (ValueError, KeyError) as e:
+        except (ConflictError, NotFoundError) as e:
             logger.info(f"{client} denied connection: {e}")
             login_start.respond("Your server was deleted.", "red")
             return

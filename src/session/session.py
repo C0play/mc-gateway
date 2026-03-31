@@ -39,7 +39,7 @@ class Session():
         """
         try:
             self._connect()
-        except Exception as e:
+        except ConnectionError as e:
             logger.error(f"failed to connect to container, before forwarding: {e}")
             return
         
@@ -91,7 +91,7 @@ class Session():
 
             try:
                 self._disconnect()
-            except Exception as e:
+            except ConnectionError as e:
                 logger.error(f"failed to disconnect container, after forwarding: {e}")
             
             if rtt_samples > 0:
@@ -131,16 +131,17 @@ class Session():
         Retries up to 3 times if connection is refused.
         
         Raises:
-             RuntimeError: If connection fails after retries or if host/container is offline.
-             ConnectionAbortedError: If the client disconnects while waiting.
+            ConnectionAbortedError: If the client disconnects while waiting.
+            ConnectionError: If host/container is offline, retries are exhausted,
+                or a transport error occurs.
         """
         try:
         
             if not self.container.host.is_online():
-                raise RuntimeError(f"can not connect if host is offline")
+                raise ConnectionError("can not connect if host is offline")
             
             if not self.container.is_online():
-                raise RuntimeError(f"can not connect if container is offline")
+                raise ConnectionError("can not connect if container is offline")
         
             attempts, wait_time = 3, 10
             for attempt in range(attempts):
@@ -158,11 +159,13 @@ class Session():
                     self._disconnect()
                     logger.warning(f"{self.client} connection to {self.container} attempt {attempt + 1} failed, retrying in {wait_time}s: {e}")
                     if self._client_disconnected(wait_time):
-                        raise RuntimeError("client disconnected")
+                        raise ConnectionAbortedError("client disconnected")
 
-            raise RuntimeError(f"connect failed after {attempts} attempts")
-        except Exception as e:                
-            raise RuntimeError(f"failed to connect: {e}")
+            raise ConnectionError(f"connect failed after {attempts} attempts")
+        except ConnectionError:
+            raise
+        except Exception as e:
+            raise ConnectionError(f"failed to connect: {e}")
 
 
     def _disconnect(self) -> None:
@@ -170,14 +173,14 @@ class Session():
         Closes the container's socket.
         
         Raises:
-             RuntimeError: If closing the socket fails.
+            ConnectionError: If closing the socket fails.
         """
         try:
             if not self.container_socket:
                 return
             self.container_socket.close()
         except Exception as e:
-            raise RuntimeError(f"failed to close the connection: {e}")
+            raise ConnectionError(f"failed to close the connection: {e}")
         
 
     def _client_disconnected(self, timeout: float = 0.0) -> bool:

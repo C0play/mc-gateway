@@ -12,6 +12,7 @@ from ..gateway.client import Client
 from .session import Session
 
 from ..utils.logger import logger
+from ..exceptions.errors import BadRequestError, ConflictError, NotFoundError, ServiceError
 
 
 class BaseSessionManager(ABC):
@@ -35,8 +36,9 @@ class BaseSessionManager(ABC):
             Session: The created session object.
 
         Raises:
-            KeyError: If the client already has a session.
-            Exception: If loading the container fails.
+            ConflictError: If the client already has a session or container is marked for deletion.
+            NotFoundError: If the target container does not exist.
+            ServiceError: If loading the container fails unexpectedly.
         """
         ...
 
@@ -46,13 +48,13 @@ class BaseSessionManager(ABC):
         Force closes all client sessions matching the criteria.
         
         Args:
-             reason: The disconnect reason sent to clients.
-             username: (Optional) Kick specific user.
-             subdomain: (Optional) Filter by container subdomain.
-             ip: (Optional) Filter by host IP.
+            reason: The disconnect reason sent to clients.
+            username: (Optional) Kick specific user.
+            subdomain: (Optional) Filter by container subdomain.
+            ip: (Optional) Filter by host IP.
 
         Raises:
-             ValueError: If neither subdomain nor ip is provided.
+            BadRequestError: If neither subdomain nor ip is provided.
         """
         ...
     
@@ -62,10 +64,10 @@ class BaseSessionManager(ABC):
         Removes a client's session.
 
         Args:
-             client: The client to remove.
+            client: The client to remove.
 
         Raises:
-             KeyError: If the client has no open session.
+            NotFoundError: If the client has no open session.
         """
         ...
     
@@ -91,16 +93,18 @@ class SessionManager(BaseSessionManager):
 
         with self.sessions_lock:
             if client in self.sessions:
-                raise KeyError(f"{client} already has a session")
+                raise ConflictError(f"{client} already has a session")
         
         if self.containers.storage.read(subdomain=subdomain, to_be_deleted=True):
-            raise ValueError(f"container {subdomain} is marked for deletion")
+            raise ConflictError(f"container {subdomain} is marked for deletion")
         
         try:
             container = self.containers.load(subdomain)
+        except NotFoundError:
+            raise
         except Exception as e:
             logger.exception(f"failed to get {subdomain} container from manager: {e}")
-            raise
+            raise ServiceError(f"failed to open session for {subdomain}: {e}")
         else:
             session = Session(client, container)
             with self.sessions_lock:
@@ -113,7 +117,7 @@ class SessionManager(BaseSessionManager):
     def interrupt(self, reason: str = "You were kicked", username: str = "", subdomain: str = "", ip: str = "") -> None:
 
         if not (username or subdomain or ip):
-            raise ValueError(f"one of [username, subdomain, ip] has to be specified")
+            raise BadRequestError("one of [username, subdomain, ip] has to be specified")
         
         clients = []
         with self.sessions_lock:
@@ -121,13 +125,14 @@ class SessionManager(BaseSessionManager):
         
         if username:
             clients = list(filter(lambda c: c.username == username, list(snapshot.keys())))
+            logger.debug(f"Interrupting session of {username}")
         elif subdomain:
             clients = [s.client for s in snapshot.values() if s.container.subdomain == subdomain]
+            logger.debug(f"Interrupting sessions of {len(clients)} clients from {subdomain}")
         elif ip:
             clients = [s.client for s in snapshot.values() if s.container.host.ip == ip]
+            logger.debug(f"Interrupting sessions of {len(clients)} clients from {ip}")
 
-        logger.debug(f"Interrupting sessions of {len(clients)} clients from {ip}{subdomain}")
-            
         for client in clients:
             snapshot[client].server_disconnect(reason)
 
@@ -136,7 +141,7 @@ class SessionManager(BaseSessionManager):
 
         with self.sessions_lock:
             if client not in self.sessions:
-                raise KeyError(f"has no open sessions")
+                raise NotFoundError("session does not exist")
         
             del self.sessions[client]
 

@@ -3,7 +3,8 @@ from abc import ABC, abstractmethod
 from typing import cast
 
 from .host import BaseHost, SSHHost
-from .models import HostConfig
+from ..api.models.host import HostConfig
+from ..exceptions.errors import NotFoundError, ServiceError
 from .repository import BaseHostRepository
 from ..utils.logger import logger
 
@@ -27,8 +28,8 @@ class BaseHostManager(ABC):
             BaseHost: The active host instance.
 
         Raises:
-            KeyError: If the host cannot be found in storage.
-            Exception: If loading host parameters fails.
+            NotFoundError: If the host cannot be found in storage.
+            ServiceError: If loading host parameters fails.
         """
         ...
 
@@ -51,7 +52,7 @@ class BaseHostManager(ABC):
             ip: The IP address of the host to delete.
         
         Raises:
-            KeyError: If the host to delete is not found in storage.
+            NotFoundError: If the host to delete is not found in storage.
         """
         ...
 
@@ -86,11 +87,13 @@ class SSHHostManager(BaseHostManager):
             try:
                 record = self.storage.read(ip=ip)
                 if not record:
-                    raise ValueError(f"no host with {ip} found")
+                    raise NotFoundError(f"host {ip} does not exist")
                 record = record[0]
-            except:
-                logger.exception(f"failed to get {ip} host parameters from storage")
+            except NotFoundError:
                 raise
+            except Exception as e:
+                logger.exception(f"failed to get {ip} host parameters from storage")
+                raise ServiceError(f"failed to load host {ip}: {e}")
             else:
                 mac = cast(str, record.mac)
                 config = HostConfig.model_validate(record.config)

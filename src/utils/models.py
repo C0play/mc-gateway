@@ -1,5 +1,9 @@
 import peewee
-from playhouse.postgres_ext import JSONField
+from playhouse.postgres_ext import (
+    JSONField,
+    
+
+) 
 
 from ..config.config import PostgresConfig
 
@@ -15,13 +19,41 @@ def db_init(cfg: PostgresConfig):
         port=cfg.port,
     )
     __db__.connect()
-    __db__.create_tables([Host, Container, Whitelist])
+    __db__.create_tables([Host, User, Session, Container, Whitelist, ApiKey])
 
 
 
 class BaseModel(peewee.Model):
     class Meta:
         database = __db__
+
+
+
+class User(BaseModel):
+    """Peewee model representing a user."""
+    email = peewee.CharField(unique=True, primary_key=True)
+    passwd_salt = peewee.CharField()
+    passwd_hash = peewee.CharField()
+    role = peewee.CharField()
+
+
+
+class ApiKey(BaseModel):
+    key_hash = peewee.CharField()
+    name = peewee.CharField()
+    active = peewee.BooleanField(default=True)
+    created_at = peewee.DateTimeField(formats="%Y-%m-%d %H:%M:%S")
+    last_used_at = peewee.DateTimeField(formats="%Y-%m-%d %H:%M:%S")
+    revoked_at = peewee.DateTimeField(formats="%Y-%m-%d %H:%M:%S", null=True, default=None)
+    user = peewee.ForeignKeyField(User, field="email", on_delete="CASCADE")
+
+
+
+class Session(BaseModel):
+    id = peewee.UUIDField(unique=True, primary_key=True)
+    created_at = peewee.DateTimeField(formats="%Y-%m-%d %H:%M:%S")
+    valid_until = peewee.DateTimeField(formats="%Y-%m-%d %H:%M:%S")
+    user = peewee.ForeignKeyField(User, field="email", on_delete="CASCADE")
 
 
 
@@ -42,10 +74,11 @@ class Container(BaseModel):
     mc_port = peewee.IntegerField()
     rcon_port = peewee.IntegerField()
     rcon_password = peewee.TextField(null=True) # Encrypted at rest
-    host = peewee.ForeignKeyField(Host, backref="containers", field='ip', null=True, on_delete='SET NULL')
     initialized = peewee.BooleanField(default=False)
     to_be_deleted = peewee.BooleanField(default=False)
     config = JSONField(default={})
+    host = peewee.ForeignKeyField(Host, backref="containers", field='ip', null=True, on_delete='SET NULL')
+    owner = peewee.ForeignKeyField(User, backref="containers", field='email', null=True, on_delete='SET NULL')
 
     class Meta:
         indexes = (

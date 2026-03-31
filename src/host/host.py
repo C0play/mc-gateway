@@ -9,7 +9,8 @@ from abc import ABC, abstractmethod
 from typing import Callable
 
 from ..utils.logger import logger
-from .models import HostConfig
+from ..api.models.host import HostConfig
+from ..exceptions.errors import ServiceError
 
 
 class BaseHost(ABC):
@@ -51,7 +52,7 @@ class BaseHost(ABC):
 
         Raises:
             TimeoutError: If the host fails to become online within the expected time.
-            RuntimeError: If the start command fails.
+            ServiceError: If the start command fails.
         """
         ...
     
@@ -65,7 +66,7 @@ class BaseHost(ABC):
 
         Raises:
             TimeoutError: If the host fails to stop within the expected time.
-            RuntimeError: If the stop command fails.
+            ServiceError: If the stop command fails.
         """
         ...
     
@@ -79,7 +80,7 @@ class BaseHost(ABC):
             config: Text content of the configuration to deploy.
 
         Raises:
-            RuntimeError: If deployment fails.
+            ServiceError: If deployment fails.
         """
         ...
     
@@ -92,7 +93,7 @@ class BaseHost(ABC):
             mc_port: The port number identifying the container.
 
         Raises:
-            RuntimeError: If removal fails.
+            ServiceError: If removal fails.
         """
         ...
     
@@ -187,9 +188,9 @@ class SSHHost(BaseHost):
         except TimeoutError as e:
             raise TimeoutError(f"host {self.ip} was offline after {e.args[0]}s")
         except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"host {self.ip} wake command failed with code: {e.returncode}")
+            raise ServiceError(f"host {self.ip} wake command failed with code: {e.returncode}")
         except Exception as e:
-            raise RuntimeError(f"host {self.ip} start failed: {e}")
+            raise ServiceError(f"host {self.ip} start failed: {e}")
 
 
     def stop(self) -> bool:
@@ -211,7 +212,7 @@ class SSHHost(BaseHost):
                     logger.warning("Host %s shutdown command failed with code %s", self.ip, res.returncode)
                     
                 if res.returncode != 0:
-                    raise RuntimeError(res.stdout, res.stderr)
+                    raise ServiceError(f"host {self.ip} shutdown failed: stdout={res.stdout} stderr={res.stderr}")
 
                 attempts, wait_time = 6, 10
                 for _ in range(attempts):
@@ -225,7 +226,7 @@ class SSHHost(BaseHost):
         except TimeoutError as e:
             raise TimeoutError(f"host {self.ip} offline after {e.args[0]}s")
         except Exception as e:
-            raise RuntimeError(f"host {self.ip} stop failed: {e}")
+            raise ServiceError(f"host {self.ip} stop failed: {e}")
         
     
     def deploy(self, mc_port: int, config: str) -> None:
@@ -242,17 +243,17 @@ class SSHHost(BaseHost):
             subprocess.run(mkdir_cmd, capture_output=True, text=True, check=True)
         except CalledProcessError as e:
             if "File exists" not in e.output: 
-                raise RuntimeError(f"failed to create directory {path} on {self.ip}: {e}")
+                raise ServiceError(f"failed to create directory {path} on {self.ip}: {e}")
             dir_exists = True
         except Exception as e:
-            raise RuntimeError(e)
+            raise ServiceError(f"failed to prepare directory {path} on {self.ip}: {e}")
 
         try:
             with tempfile.NamedTemporaryFile(mode='w', delete=False) as tmp:
                 tmp.write(config)
                 tmp_path = tmp.name
         except Exception as e:
-            raise RuntimeError(f"writing tempfile for {path} failed: {e}")
+            raise ServiceError(f"writing tempfile for {path} failed: {e}")
         
         try:
             scp_cmd = ["scp", tmp_path, f"{self.user}@{self.ip}:{filepath}"]
@@ -261,7 +262,7 @@ class SSHHost(BaseHost):
             if not dir_exists:
                 rmdir_cmd = ["ssh", f"{self.user}@{self.ip}", "rmdir", path]
                 subprocess.run(rmdir_cmd, capture_output=True, text=True, check=True)
-            raise RuntimeError(f"failed to transfer {filepath} to {self.ip}: {e}")
+            raise ServiceError(f"failed to transfer {filepath} to {self.ip}: {e}")
         finally:
             os.unlink(tmp_path)
 
@@ -281,9 +282,9 @@ class SSHHost(BaseHost):
             subprocess.run(rmrf_cmd, capture_output=True, text=True, check=True)
         except CalledProcessError as e:
             logger.debug(f"stdout: {e.stdout}, stderr: {e.stderr}")
-            raise RuntimeError(f"failed to remove {path}: {e}")
+            raise ServiceError(f"failed to remove {path}: {e}")
         except Exception as e:
-            raise RuntimeError(f"unexpected error during removal of {path}: {e}")
+            raise ServiceError(f"unexpected error during removal of {path}: {e}")
 
 
     def _execute_on_start(self) -> None:

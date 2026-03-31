@@ -22,16 +22,7 @@ class BaseWhitelistManager(ABC):
             bool: True if the combination exists in the whitelist, False otherwise.
         """
         ...
-        
-    @abstractmethod
-    def dict(self) -> list[dict[str, str]]:
-        """
-        Returns whitelist contents.
 
-        Returns:
-            list[dict[str, str]]: List of user-subdomain mappings.
-        """
-        ...
 
 
 class WhitelistManager(BaseWhitelistManager):
@@ -49,7 +40,3 @@ class WhitelistManager(BaseWhitelistManager):
             return self.storage.exists({"subdomain": subdomain})
         else:
             return False
-
-
-    def dict(self) -> list[dict[str, str]]:
-        return self.storage.list()

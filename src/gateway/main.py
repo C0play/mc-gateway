@@ -2,7 +2,7 @@ from ..config.loader import load_config
 
 from ..utils.logger import logger
 from ..utils.keygen import KeyGenerator
-from ..utils.crypto import CryptoProvider
+from ..security.crypto import Crypto
 from ..utils.composegen import ComposeGenerator
 
 from ..whitelist.manager import WhitelistManager
@@ -24,7 +24,7 @@ def main():
     try:
         cfg = load_config()
 
-        CryptoProvider.initialize(cfg.storage.rcon_key)
+        Crypto.initialize(cfg.storage.rcon_key)
 
         host_repo = SQLHostRepository()
         hosts = SSHHostManager(host_repo)

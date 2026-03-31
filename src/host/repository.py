@@ -2,30 +2,28 @@ from abc import ABC, abstractmethod
 from peewee import IntegrityError
 
 from ..utils.models import Host
-from .models import HostConfig
+from ..exceptions.errors import NotFoundError, ConflictError, ServiceError
 
 
 class BaseHostRepository(ABC):
     """A base class for managing host parameters stored in persistent storage"""
     
     @abstractmethod
-    def create(self, ip: str, mac: str, user: str, path: str, config: dict) -> Host:
+    def create(self, ip: str, mac: str, config: dict) -> Host:
         """
         Creates a new host record.
 
         Args:
             ip: Host IP address.
             mac: Host MAC address.
-            user: SSH username.
-            path: Base path on the host.
             config: JSON-serialized HostConfig.
 
         Returns:
             Host: The newly created Host instance.
 
         Raises:
-            KeyError: If the host already exists.
-            RuntimeError: If an unexpected error occurs.
+            ConflictError: If the host already exists.
+            ServiceError: If an unexpected error occurs.
         """
         ...
     
@@ -55,7 +53,7 @@ class BaseHostRepository(ABC):
             Host: The updated Host instance.
 
         Raises:
-            KeyError: If the host does not exist.
+            NotFoundError: If the host does not exist.
         """
         ...
 
@@ -68,16 +66,7 @@ class BaseHostRepository(ABC):
             ip: The IP address of the host to remove.
 
         Raises:
-            KeyError: If the host does not exist.
-        """
-        ...
-    
-    def list(self) -> list[dict[str, str]]:
-        """
-        Returns all stored hosts in a JSON-friendly format.
-
-        Returns:
-             list[dict[str, str]]: List of host dictionaries.
+            NotFoundError: If the host does not exist.
         """
         ...
 
@@ -88,18 +77,20 @@ class SQLHostRepository(BaseHostRepository):
     Implementation of host storage using Peewee ORM.
     """
     
-    def create(self, ip: str, mac: str, user: str, path: str, config: dict) -> Host:
+    def create(self, ip: str, mac: str, config: dict) -> Host:
         try:
-            return Host.create(ip=ip, mac=mac, user=user, path=path, config=config)
-        except (KeyError, IntegrityError) as e:
-            raise KeyError(f"failed to add host: {e}")
+            return Host.create(ip=ip, mac=mac, config=config)
+        except IntegrityError as e:
+            raise ConflictError(f"failed to add host: {e}")
         except Exception as e:
-            raise RuntimeError(f"unexpected error while creating a new host: {e}")
+            raise ServiceError(f"unexpected error while creating a new host: {e}")
 
 
     def read(self, **filters) -> list[Host]:
         query = Host.select()
         for field, value in filters.items():
+            if value is None:
+                continue
             query = query.where(getattr(Host, field) == value)
         return list(query)
 
@@ -110,23 +101,12 @@ class SQLHostRepository(BaseHostRepository):
                     .where(Host.ip == ip)
                     .execute())
         if rows == 0:
-            raise KeyError(f"host {ip} does not exist")
+            raise NotFoundError(f"host {ip} does not exist")
         return Host.get_by_id(ip)
 
 
     def delete(self, ip: str) -> None:
-
         query = Host.delete().where(Host.ip == ip)
         rows_deleted = query.execute()
         if rows_deleted == 0:
-             raise KeyError(f"host {ip} does not exist")
-    
-
-    def list(self) -> list[dict[str, str]]:
-        hosts = Host.select()
-        return [{
-                "ip": h.ip,
-                "mac": h.mac,
-                "config": h.config,
-            } for h in hosts
-        ]
+            raise NotFoundError(f"host {ip} does not exist")
