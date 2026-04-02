@@ -39,4 +39,5 @@ Desktop.ini
 ssh/*
 *.tar
 *.sh
+*.sql
 postgres_data
