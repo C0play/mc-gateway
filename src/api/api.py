@@ -15,25 +15,23 @@ from .services.user import UserService
 from .services.session import SessionService
 from .services.api_key import ApiKeyService
 
-from .data.user.roles import RoleRepository
+from .security.roles import RoleRepository
 from .data.user.manager import SQLUserManager
 from .data.user.repository import SQLUserRepository
 
-from .data.api_keys.repository import SQLKeyRepository
-from .data.api_keys.manager import SQLKeyManager
+from .data.api_key.repository import SQLKeyRepository
+from .data.api_key.manager import SQLKeyManager
 
 from .data.session.manager import SessionManager
 from .data.session.repository import SQLSessionRepository
 
-from .security import AccessPipeline
-from .security.guards import build_access_guards
 
-from .endpoints.auth import build_auth_router
+from .endpoints.auth import auth_router
 from .endpoints.system import build_system_admin_router
 from .endpoints.players import build_player_admin_router, build_player_me_router
-from .endpoints.containers import build_container_admin_router, build_container_me_router
+from .endpoints.containers import container_router, build_container_me_router
 from .endpoints.hosts import build_host_admin_router
-from .endpoints.me import build_me_router
+from .endpoints.keys import build_me_router
 
 if TYPE_CHECKING:
     from ..gateway.server import Server
@@ -72,12 +70,6 @@ class API:
             SQLSessionRepository()
         )
         
-        self.access = AccessPipeline(
-            users=self.users,
-            keys=self.keys,
-            sessions=self.sessions,
-            container_repo=self.server._sessions.containers.storage
-        )
         self.user_service = UserService(
             users=self.users,
         )
@@ -95,14 +87,6 @@ class API:
 
 
     def _register(self) -> None:
-        guards = build_access_guards(self.access)
-
-        # ================================ AUTH ===============================
-
-        @self.app.middleware("http")
-        async def authenticate_requset(request: Request, call_next):
-            
-            ...
 
         # ============================== LOGGING ==============================
 
@@ -122,64 +106,11 @@ class API:
 
         # ============================== ROUTERS ==============================
 
-        # PUBLIC
-        auth_router = build_auth_router(self.user_service, self.session_service)
-        
-
-        # ADMIN
-        admin_router = APIRouter(prefix="/admin")
-        
-        system_admin_router = build_system_admin_router(
-            self.server,
-            guards.require_view_status,
-            guards.require_stop_server,
-        )
-        
-        player_admin_router = build_player_admin_router(
-            self.player_service,
-            guards.require_manage_whitelists
-        )
-        
-        container_admin_router = build_container_admin_router(
-            self.container_service,
-            guards.require_manage_containers
-        )
-        
-        host_admin_router = build_host_admin_router(
-            self.host_service,
-            guards.require_manage_hosts
-        )
-        
-        admin_router.include_router(system_admin_router)
-        admin_router.include_router(player_admin_router)
-        admin_router.include_router(container_admin_router)
-        admin_router.include_router(host_admin_router)
-
-
-        # USER
-        me_router = build_me_router(
-            self.session_service,
-            self.api_key_service,
-            guards.require_session,
-            guards.require_user_manage_own_apikeys,
+        router_public = APIRouter(
+           prefix="/public",
+           tags=["Public"]
         )
 
-        container_me_router = build_container_me_router(
-            self.container_service,
-            guards.require_user_manage_own_containers,
-            guards.require_session,
+        router_protected = APIRouter(
+            prefix=" "
         )
-
-        player_me_router = build_player_me_router(
-            self.player_service,
-            guards.require_user_manage_own_containers,
-        )
-
-        me_router.include_router(container_me_router)
-        me_router.include_router(player_me_router)
-
-        # ============================== MAIN APP ==============================
-
-        self.app.include_router(auth_router)
-        self.app.include_router(admin_router)
-        self.app.include_router(me_router)

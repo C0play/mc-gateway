@@ -17,7 +17,7 @@ class SessionService:
         self.sessions = sessions
 
     
-    def session_login_public(self, email: str, password: str) -> LoginResponse:
+    def session_login(self, email: str, password: str) -> LoginResponse:
         if not self.users.validate_password(email, password):
             raise UnauthorizedError("Wrong password or email")
 
@@ -28,14 +28,10 @@ class SessionService:
         )
 
     
-    def session_get_own(self, email: str) -> MessageResponse:
-        return MessageResponse(
-            message=f"Session valid for {email}",
-        )
+    def session_get(self, email: str) -> MessageResponse:
+        return MessageResponse(message=f"Session valid for {email}")
 
     
-    def session_revoke_own(self, session_id: UUID | None) -> MessageResponse:
-        if session_id is None:
-            raise UnauthorizedError("Missing session id")
+    def session_logout(self, session_id: UUID) -> MessageResponse:
         self.sessions.delete(session_id)
         return MessageResponse(message="Session revoked")

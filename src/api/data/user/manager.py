@@ -1,14 +1,14 @@
 from abc import ABC, abstractmethod
 
 from .repository import BaseUserRepository, SQLUserRepository
-from .roles import RoleRepository, Permission
+from ...security.roles import RoleRepository, Permission
 
 from ....utils.models import User
 from ....utils.logger import logger
 from ....exceptions.errors import NotFoundError
 
 
-class BaseAuthenticationManager(ABC):
+class BaseUserManager(ABC):
 
     def __init__(self, 
             user_repository: BaseUserRepository,
@@ -93,7 +93,7 @@ class BaseAuthenticationManager(ABC):
 
 
 
-class SQLUserManager(BaseAuthenticationManager):
+class SQLUserManager(BaseUserManager):
 
     def __init__(self,
         user_repository: SQLUserRepository,

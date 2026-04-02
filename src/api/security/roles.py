@@ -1,6 +1,5 @@
 from enum import IntEnum, auto
-from ....exceptions.errors import BadRequestError, NotFoundError
-
+from ...exceptions.errors import NotFoundError
 
 
 class Permission(IntEnum):
@@ -20,7 +19,7 @@ class Permission(IntEnum):
     # all _RU_ endpoints restricted to user's own data
     container_manage_own    = auto()
     whitelist_manage_own    = auto()
-    api_key_manage_all      = auto()
+    api_keys_manage_own     = auto()
     user_manage_own         = auto()
     # other
     server_shutdown         = auto()
@@ -75,7 +74,7 @@ class RoleRepository:
                 Permission.server_shutdown,
             ]),
             "user": self.perms.combine([
-                Permission.api_key_manage_all,
+                Permission.api_keys_manage_own,
                 Permission.container_manage_own,
                 Permission.user_manage_own,
                 Permission.whitelist_manage_own,

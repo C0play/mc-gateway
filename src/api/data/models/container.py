@@ -6,6 +6,7 @@ from .validators import validate_subdomain
 Difficulty: TypeAlias = Literal["peaceful", "easy", "normal", "hard"]
 ReleaseType: TypeAlias = Literal["release", "beta", "alpha"]
 
+# ======================================== INTERNAL MODELS ========================================
 
 class ContainerConfig(BaseModel):
     """
@@ -31,7 +32,7 @@ class OptContainerConfig(BaseModel):
     modrinth_projects: list[str] | None = Field(None, description="List of Modrinth mods URLs or IDs to install")
 
 
-class ContainerID(BaseModel):
+class _ContainerID(BaseModel):
     subdomain: str = Field(..., min_length=4, max_length=4, description="Subdomain assigned to the container")
 
     @field_validator("subdomain")
@@ -54,30 +55,33 @@ class OptContainerData(BaseModel):
     config: OptContainerConfig | None = Field(None, description="Partial YAML config merged with current container settings")
 
 
-class FullContainer(ContainerID, ContainerData):
+class FullContainer(_ContainerID, ContainerData):
     initialized: bool = Field(..., description="Flag whether compose.yml was deployed on the host")
     to_be_deleted: bool = Field(..., description="Flag whether container is set to be deleted")
 
 
 # ======================================== USER FACING MODELS ========================================
 
-class ServerData(BaseModel):
-    """Subset of config fields viewable by regular users."""
+class UserContainerConfig(BaseModel):
+    """Subset of config fields editable by regular users."""
 
-    subdomain: str = Field(..., min_length=4, max_length=4, description="Subdomain assigned to the container")
     ram: str = Field(..., description="The amount of memory to allocate (e.g., '2G', '4G')")
     version: str = Field(..., description="The Minecraft version to use")
     view_distance: int = Field(10, ge=1, le=32, description="Server view distance")
     mod_version_type: ReleaseType = Field(..., description="Allowed mod release type for Modrinth projects")
     modrinth_projects: list[str] = Field(..., description="List of Modrinth mods URLs or IDs to install")
+    
 
-
-class OptServerConfig(BaseModel):
-    """Subset of config fields editable by regular users."""
-
+class UserOptContainerConfig(BaseModel):
     version: str | None = Field(None, description="The Minecraft version to use")
     mod_version_type: ReleaseType | None = Field(None, description="Allowed mod release type for Modrinth projects")
     modrinth_projects: list[str] | None = Field(None, description="List of Modrinth mods URLs or IDs to install")
+
+
+class UserOptContainerData(_ContainerID):
+    """Subset of config fields viewable by regular users."""
+
+    config: UserOptContainerConfig = Field(..., description="Server config")
 
 
 # ======================================== HELPERS ========================================

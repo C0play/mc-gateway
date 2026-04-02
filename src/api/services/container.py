@@ -13,11 +13,13 @@ from ..data.mappers.container import full_container_from_record
 from ...utils.composegen import PERFORMANCE_MODS
 from ...utils.keygen import KeyGenerator
 
-from ...exceptions.errors import BadRequestError, NotFoundError
+from ...exceptions.errors import BadRequestError, NotFoundError, UnauthorizedError
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ...gateway.server import Server
+
+
 
 class ContainerService:
 
@@ -27,7 +29,7 @@ class ContainerService:
         self.server_sessions = server._sessions
 
 
-    def container_add_admin(self, data: ContainerData) -> FullContainer:
+    def container_add(self, data: ContainerData) -> FullContainer:
         for mod in PERFORMANCE_MODS:
             if mod not in data.config.modrinth_projects:
                 data.config.modrinth_projects.append(mod)
@@ -82,7 +84,7 @@ class ContainerService:
         return full_container_from_record(updated_container)
 
 
-    def container_remove_admin(self, subdomain: str) -> FullContainer:
+    def container_remove(self, subdomain: str) -> FullContainer:
         records = self.containers.storage.read(subdomain=subdomain)
         if not records:
             raise NotFoundError(f"container {subdomain} does not exist")
@@ -101,23 +103,23 @@ class ContainerService:
         return MessageResponse(message=f"All players from server {subdomain} have been kicked")
 
 
-    def container_get(self, subdomain: str) -> FullContainer:
-        records = self.containers.storage.read(subdomain=subdomain)
-        if not records:
-            raise NotFoundError(f"container {subdomain} does not exist")
-        return full_container_from_record(records[0])
-
-
-    def container_list_admin(self, subdomain: str | None = None) -> ListResponse:
-        query = self.containers.storage.read(subdomain=subdomain)
-        lst = [full_container_from_record(row) for row in query]
-        return ListResponse(root=lst)
-
-
-    def container_list_own(self, owner_email: str, subdomain: str | None = None) -> ListResponse:
+    def container_get(self, 
+            subdomain: str | None = None,
+            owner_email: str | None = None
+        ) -> ListResponse:
         query = self.containers.storage.read(
-            subdomain=subdomain,
+            ubdomain = subdomain,
             owner=owner_email,
         )
         lst = [full_container_from_record(row) for row in query]
         return ListResponse(root=lst)
+    
+
+    def validate_owner(self, subdomain: str, owner_email: str) -> None:
+        records = self.containers.storage.read(
+            subdomain=subdomain,
+            owner=owner_email,
+        )
+        if not records:
+            raise UnauthorizedError("you are no the owner")
+        
