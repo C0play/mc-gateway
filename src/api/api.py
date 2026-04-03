@@ -1,43 +1,29 @@
 from typing import TYPE_CHECKING
 
-from fastapi import (
-    FastAPI,
-    Request,
-    APIRouter,
-)
+from fastapi import (FastAPI, Request)
+
 
 from ..utils.logger import logger
 
-from .services.player import PlayerService
-from .services.container import ContainerService
-from .services.host import HostService
-from .services.user import UserService
-from .services.session import SessionService
-from .services.api_key import ApiKeyService
-
-from .security.roles import RoleRepository
 from .data.user.manager import SQLUserManager
 from .data.user.repository import SQLUserRepository
 
-from .data.api_key.repository import SQLKeyRepository
 from .data.api_key.manager import SQLKeyManager
+from .data.api_key.repository import SQLKeyRepository
 
 from .data.session.manager import SessionManager
 from .data.session.repository import SQLSessionRepository
 
 
-from .endpoints.auth import auth_router
-from .endpoints.system import build_system_admin_router
-from .endpoints.players import build_player_admin_router, build_player_me_router
-from .endpoints.containers import container_router, build_container_me_router
-from .endpoints.hosts import build_host_admin_router
-from .endpoints.keys import build_me_router
+from .services import *
+from .security import *
+from .routers import *
+
 
 if TYPE_CHECKING:
     from ..gateway.server import Server
 
 
-# ======================================== FastAPI ========================================
 
 class API:
     """
@@ -53,42 +39,11 @@ class API:
         """
         self.server = server
 
-        self.player_service = PlayerService(server=self.server)
-        self.container_service = ContainerService(server=self.server)
-        self.host_service = HostService(server=self.server)
-        
-        self.keys = SQLKeyManager(
-            SQLKeyRepository()
-        )
-
-        self.users = SQLUserManager(
-            SQLUserRepository(),
-            RoleRepository()
-        )
-
-        self.sessions = SessionManager(
-            SQLSessionRepository()
-        )
-        
-        self.user_service = UserService(
-            users=self.users,
-        )
-        self.session_service = SessionService(
-            users=self.users,
-            sessions=self.sessions,
-        )
-        self.api_key_service = ApiKeyService(
-            keys=self.keys,
-        )
-
         self.app = FastAPI(title="mc-gateway API")
-        
         self._register()
 
 
     def _register(self) -> None:
-
-        # ============================== LOGGING ==============================
 
         @self.app.middleware("http")
         async def log_requests(request: Request, call_next):
@@ -104,13 +59,37 @@ class API:
                 logger.error(f"API: error processing {request.url.path}: {e}")
                 raise e
 
+
         # ============================== ROUTERS ==============================
 
-        router_public = APIRouter(
-           prefix="/public",
-           tags=["Public"]
+        sessions = SessionManager(SQLSessionRepository())
+        keys = SQLKeyManager(SQLKeyRepository())
+        users = SQLUserManager(
+            SQLUserRepository(),
+            RoleRepository()
         )
 
-        router_protected = APIRouter(
-            prefix=" "
-        )
+        roles = RoleRepository()
+        permissions = PermissionRepository()
+        authentication = AuthenticationManager(keys, users, sessions)
+        authorization = AuthorizationManager(roles, permissions, authentication)
+
+        session_service = SessionService(users = users, sessions = sessions)
+        api_key_service = ApiKeyService(keys = keys)
+        host_service = HostService(server = self.server)
+        container_service = ContainerService(server = self.server)
+        player_service = PlayerService(server = self.server)
+
+        auth_router = AuthRouter(session_service, authentication).get_router()
+        key_router = ApiKeyRouter(api_key_service, authorization).get_router()
+        host_router = HostRouter(host_service, authorization).get_router()
+        container_router = ContainerRouter(container_service, authorization).get_router()
+        player_router = PlayerRouter(player_service, authorization).get_router()
+        system_router = SystemRouter(self.server, authorization).get_router()
+
+        self.app.include_router(auth_router)
+        self.app.include_router(key_router)
+        self.app.include_router(host_router)
+        self.app.include_router(container_router)
+        self.app.include_router(player_router)
+        self.app.include_router(system_router)

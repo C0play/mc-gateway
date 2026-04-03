@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from typing import Callable
 
 from ..utils.logger import logger
-from ..api.models.host import HostConfig
+from ..api.data.models.host import HostConfig
 from ..exceptions.errors import ServiceError
 
 

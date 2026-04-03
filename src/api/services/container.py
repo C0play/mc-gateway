@@ -1,19 +1,23 @@
 from ..data.models.host import HostConfig
-from ..data.models.response import ListResponse, MessageResponse
+
+from ..data.mappers.container import full_container_from_record
 from ..data.models.container import (
     ContainerConfig,
     ContainerData,
     FullContainer,
     OptContainerData,
+    UserOptContainerData,
+    OptContainerConfig,
     merge_configs
 )
-from ..data.models.validators import validate_container_ram_against_host
 
-from ..data.mappers.container import full_container_from_record
+from ..data.models.validators import validate_container_ram_against_host
+from ..data.models.response import ListResponse, MessageResponse
+
 from ...utils.composegen import PERFORMANCE_MODS
 from ...utils.keygen import KeyGenerator
 
-from ...exceptions.errors import BadRequestError, NotFoundError, UnauthorizedError
+from ...exceptions.errors import BadRequestError, NotFoundError, ForbiddenError
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -29,7 +33,7 @@ class ContainerService:
         self.server_sessions = server._sessions
 
 
-    def container_add(self, data: ContainerData) -> FullContainer:
+    def add(self, data: ContainerData) -> FullContainer:
         for mod in PERFORMANCE_MODS:
             if mod not in data.config.modrinth_projects:
                 data.config.modrinth_projects.append(mod)
@@ -49,7 +53,10 @@ class ContainerService:
         return full_container_from_record(container)
 
 
-    def container_update(self, subdomain: str, data: OptContainerData) -> FullContainer:
+    def update(self, subdomain: str, data: OptContainerData | UserOptContainerData) -> FullContainer:
+
+        data = ContainerService._generate_update_data(data)
+
         if not KeyGenerator.validate(subdomain):
             raise BadRequestError("subdomain is not valid")
 
@@ -84,7 +91,7 @@ class ContainerService:
         return full_container_from_record(updated_container)
 
 
-    def container_remove(self, subdomain: str) -> FullContainer:
+    def remove(self, subdomain: str) -> FullContainer:
         records = self.containers.storage.read(subdomain=subdomain)
         if not records:
             raise NotFoundError(f"container {subdomain} does not exist")
@@ -98,15 +105,12 @@ class ContainerService:
         return full_container_from_record(deleted_container)
 
 
-    def container_kick(self, subdomain: str) -> MessageResponse:
+    def kick(self, subdomain: str) -> MessageResponse:
         self.server_sessions.interrupt(subdomain=subdomain)
         return MessageResponse(message=f"All players from server {subdomain} have been kicked")
 
 
-    def container_get(self, 
-            subdomain: str | None = None,
-            owner_email: str | None = None
-        ) -> ListResponse:
+    def read(self, subdomain: str | None = None, owner_email: str | None = None) -> ListResponse:
         query = self.containers.storage.read(
             ubdomain = subdomain,
             owner=owner_email,
@@ -115,11 +119,27 @@ class ContainerService:
         return ListResponse(root=lst)
     
 
-    def validate_owner(self, subdomain: str, owner_email: str) -> None:
+    def assert_owner(self, subdomain: str, owner_email: str) -> None:
         records = self.containers.storage.read(
             subdomain=subdomain,
             owner=owner_email,
         )
         if not records:
-            raise UnauthorizedError("you are no the owner")
+            raise ForbiddenError("you are no the owner")
         
+
+    @staticmethod
+    def _generate_update_data(user_config: OptContainerData | UserOptContainerData) -> OptContainerData:
+        
+        if isinstance(user_config, OptContainerData):
+            return user_config
+
+        config = OptContainerConfig.model_validate(
+            user_config.model_dump(exclude_unset=True, exclude_none=True)
+        )
+        return OptContainerData(
+            ip = None,
+            mc_port = None,
+            rcon_port = None,
+            config = config
+        )

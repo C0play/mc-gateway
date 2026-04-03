@@ -5,10 +5,10 @@ from typing import cast
 from ....exceptions.errors import (
     BadRequestError,
     NotFoundError,
+    UnauthorizedError,
 )
 from .repository import SQLSessionRepository
 from ....utils.models import Session
-
 from ....utils.logger import logger
 
 
@@ -26,9 +26,9 @@ class SessionManager:
 
 
     def get(self, *, email: str | None = None, uuid: UUID | None = None) -> Session:
-        self.cleanup_expired()
+        self._cleanup_expired()
 
-        if not (email is not None or uuid is not None):
+        if email is None and uuid is None:
             raise BadRequestError(f"one of [email, uuid] has to be specified")
         
         if email:
@@ -39,29 +39,54 @@ class SessionManager:
             if not sessions:
                 raise NotFoundError(f"session {uuid} does not exist")
             session = sessions[0]
+            if cast(datetime, session.valid_until) < datetime.now():
+                raise UnauthorizedError(f"session {uuid} expired")
         else:
             raise BadRequestError(f"email and uuid can not be empty")
 
         return session
     
 
-    def extend(self, uuid: UUID, created_at: datetime, valid_until: datetime) -> Session | None:
+    def extend(self, uuid: UUID) -> Session | None:
+
+        if not self.validate(uuid):
+            raise UnauthorizedError("session is not valid")
+
+        old_sessions = self.sessions.read(id=uuid)
+        if not old_sessions:
+            raise BadRequestError("session not found")
+        old_session = old_sessions[0]
+
+        created_at = cast(datetime, old_session.valid_until)
+        valid_until = cast(datetime, old_session.valid_until)
+        user_email = cast(str, old_session.user)
+        
         refresh_threshold = timedelta(seconds = SessionManager.EXTEND_THRESHOLD_SECONDS)
         max_hours = timedelta(hours=SessionManager.MAX_VALID_HOURS)
         
-        if (valid_until - datetime.now() < refresh_threshold 
-            and datetime.now() - created_at < max_hours):
-            
+        now = datetime.now()
+
+        if (valid_until - now < refresh_threshold and now - created_at < max_hours):
+
             timestamp = valid_until + timedelta(seconds = SessionManager.EXTEND_SECONDS)
             logger.debug(f"Extending {str(uuid)[:6]} until {timestamp}")
 
-            session = self.sessions.update(uuid, valid_until=timestamp)
-            return session
-        logger.debug(f"Not extending {str(uuid)[:6]} ({valid_until - datetime.now() < refresh_threshold} and {datetime.now() - created_at < max_hours})")
+            new_session = self.sessions.create(
+                user_email=user_email,
+                created_at=created_at,
+                valid_until=timestamp
+            )
+            self.sessions.delete(uuid)
+            logger.debug(f"Extended {str(uuid)[:6]}. New UUID: {new_session.id}")
+            
+            return new_session
+
+
+        logger.debug(f"Not extending {str(uuid)[:6]} ({valid_until - now < refresh_threshold} and {now - created_at < max_hours})")
 
 
     def validate(self, uuid: UUID) -> bool:
-        self.cleanup_expired()
+        self._cleanup_expired()
 
         sessions = self.sessions.read(id=uuid)
         if not sessions:
@@ -75,7 +100,7 @@ class SessionManager:
         return True
 
 
-    def cleanup_expired(self, *, force: bool = False) -> int:
+    def _cleanup_expired(self, *, force: bool = False) -> int:
         now = datetime.now()
         if not force and self._last_purge_at is not None:
             elapsed = (now - self._last_purge_at).total_seconds()

@@ -17,7 +17,7 @@ class HostService:
         self.server_sessions = server._sessions
 
     
-    def host_add(self, host: FullHost) -> FullHost:
+    def add(self, host: FullHost) -> FullHost:
         config_json = host.config.model_dump(mode="json")
         new_host = self.hosts.storage.create(
             str(host.ip),
@@ -27,7 +27,7 @@ class HostService:
         return full_host_from_record(new_host)
 
     
-    def host_update(self, ip: str, data: OptHostData) -> FullHost:
+    def update(self, ip: str, data: OptHostData) -> FullHost:
         updates = data.model_dump(exclude_unset=True, exclude_none=True)
 
         if data.config is not None:
@@ -42,7 +42,7 @@ class HostService:
         return full_host_from_record(new_host)
 
     
-    def host_remove(self, ip: str) -> FullHost:
+    def remove(self, ip: str) -> FullHost:
         records = self.hosts.storage.read(ip=ip)
         if not records:
             raise NotFoundError(f"host {ip} does not exist")
@@ -56,14 +56,14 @@ class HostService:
         return full_host_from_record(deleted_host)
 
     
-    def host_kick(self, ip: str) -> MessageResponse:
+    def kick(self, ip: str) -> MessageResponse:
         self.server_sessions.interrupt(ip=ip)
         return MessageResponse(
             message=f"All players from {ip} have been kicked"
         )
 
     
-    def host_list(self, ip: str | None = None) -> ListResponse:
+    def read(self, ip: str | None = None) -> ListResponse:
         query = self.hosts.storage.read(ip=ip)
         lst = [full_host_from_record(row) for row in query]
         return ListResponse(root=lst)

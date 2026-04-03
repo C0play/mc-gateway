@@ -14,12 +14,13 @@ class BaseKeyRepository(ABC):
     """A base class for managing whitelist parameters stored in persistent storage"""
     
     @abstractmethod
-    def create(self, user_email: str) -> str:
+    def create(self, user_email: str, name: str) -> str:
         """
-        Registeres an APiKey for a user.
+        Registeres an APiKey withe the specified name for a user.
 
         Args:
             user_email: The users's email.
+            name: Name for the key.
 
         Returns:
             api_key: Unhashed API key (keys are hashed at rest).
@@ -92,7 +93,7 @@ class SQLKeyRepository(BaseKeyRepository):
     Implementation of host storage using Peewee ORM.
     """
     
-    def create(self, user_email: str) -> str:
+    def create(self, user_email: str, name: str) -> str:
         try:
             plain_key = generate_token_urlsafe(32)
             hashed_key = sha256_hex(plain_key)
@@ -102,6 +103,7 @@ class SQLKeyRepository(BaseKeyRepository):
                 created_at=today,
                 last_used_at=today,
                 user=user_email,
+                name=name,
             )
             return plain_key
         except IntegrityError as e:

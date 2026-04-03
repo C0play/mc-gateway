@@ -1,7 +1,6 @@
 from ..data.mappers.api_key import apikey_from_record
 from ..data.models.response import ListResponse, MessageResponse
 from ..data.api_key.manager import BaseKeyManager
-from ...exceptions import UnauthorizedError
 
 
 class ApiKeyService:
@@ -16,16 +15,11 @@ class ApiKeyService:
         return ListResponse(root=lst)
 
     
-    def create(self, email: str) -> MessageResponse:
-        key = self.keys.create(email)
+    def create(self, email: str, name: str) -> MessageResponse:
+        key = self.keys.create(email, name)
         return MessageResponse(message=key)
 
     
     def revoke(self, email: str, name: str) -> MessageResponse:
         self.keys.deactivate(email, name)
         return MessageResponse(message=f"Key {name} revoked.")
-    
-    def validate_owner(self, owner_email: str,  name: str | None = None) -> None:
-        records = self.keys.read(name=name, owner=owner_email)
-        if not records:
-            raise UnauthorizedError("you are no the owner")

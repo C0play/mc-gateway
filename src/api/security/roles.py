@@ -22,7 +22,7 @@ class Permission(IntEnum):
     api_keys_manage_own     = auto()
     user_manage_own         = auto()
     # other
-    server_shutdown         = auto()
+    server_manage           = auto()
 
 
 
@@ -71,7 +71,7 @@ class RoleRepository:
                 Permission.api_keys_manage_all,
                 Permission.users_manage_all,
                 Permission.status_get,
-                Permission.server_shutdown,
+                Permission.server_manage,
             ]),
             "user": self.perms.combine([
                 Permission.api_keys_manage_own,

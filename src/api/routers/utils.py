@@ -14,6 +14,7 @@ from ...exceptions.errors import (
 from ...utils.logger import logger
 
 
+
 def handle_errors(func):
     @wraps(func)
     def endpoint_wrapper(*args, **kwargs):
@@ -65,7 +66,7 @@ def handle_errors(func):
                 logger.info(f"API: not found ({operation}): {e.detail}")
             raise
         except Exception as e:
-            logger.error(f"API: failed to {operation}: {e}")
+            logger.error(f"API: failed to perform {operation}: {e}")
             raise HTTPException(
                 status_code=code.HTTP_500_INTERNAL_SERVER_ERROR,
             )

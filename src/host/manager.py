@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from typing import cast
 
 from .host import BaseHost, SSHHost
-from ..api.models.host import HostConfig
+from ..api.data.models.host import HostConfig
 from ..exceptions.errors import NotFoundError, ServiceError
 from .repository import BaseHostRepository
 from ..utils.logger import logger

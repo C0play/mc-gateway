@@ -4,7 +4,7 @@ from typing import cast
 
 from .repository import BaseContainerRepository
 from .container import BaseContainer, SSHContainer
-from ..api.models.container import ContainerConfig
+from ..api.data.models.container import ContainerConfig
 from ..host.manager import BaseHostManager
 from ..host.host import BaseHost, SSHHost
 from ..utils.composegen import ComposeGenerator

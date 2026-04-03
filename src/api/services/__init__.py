@@ -1,8 +1,7 @@
-__all__ = ["api_key", "container", "host", "player", "session", "user"]
+__all__ = ["ApiKeyService", "ContainerService", "HostService", "PlayerService", "SessionService"]
 
-from .api_key import ApiKeyService
+from .key import ApiKeyService
 from .container import ContainerService
 from .host import HostService
 from .player import PlayerService
 from .session import SessionService
-from .user import UserService

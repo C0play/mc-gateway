@@ -1,6 +1,8 @@
-__all__ = ["authorization", "authentication", "context", "roles"]
+__all__ = ["AuthorizationManager", "AuthenticationManager", "AuthContext", "PermissionRepository", "Permission", "RoleRepository"]
 
 from .authorization import AuthorizationManager
 from .authentication import AuthenticationManager
 from .context import AuthContext
+from .roles import PermissionRepository
+from .roles import RoleRepository
 from .roles import Permission

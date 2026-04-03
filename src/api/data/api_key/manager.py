@@ -11,13 +11,14 @@ class BaseKeyManager(ABC):
         self.keys = key_repository
 
     @abstractmethod
-    def create(self, user_email: str) -> str:
+    def create(self, user_email: str, name: str) -> str:
         """
-        Creates a new key for the user.
+        Creates a new key with the specified name for the user .
 
         Args:
             user_email: Email address of the user to create the key for.
-
+            name: Name for the key.
+            
         Returns:
             str: Unhashed API key of the user.
 
@@ -84,8 +85,8 @@ class SQLKeyManager(BaseKeyManager):
         super().__init__(key_repository)
     
     
-    def create(self, user_email: str) -> str:
-        return self.keys.create(user_email)
+    def create(self, user_email: str, name: str) -> str:
+        return self.keys.create(user_email, name)
     
     def read(self, **filters) -> list[ApiKey]:
         return self.keys.read(**filters)

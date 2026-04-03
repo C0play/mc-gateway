@@ -11,6 +11,7 @@ from .roles import PermissionRepository, RoleRepository, Permission
 from ...exceptions import ForbiddenError
 
 
+
 class AuthorizationManager:
 
     def __init__(
