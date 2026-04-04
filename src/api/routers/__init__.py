@@ -1,5 +1,14 @@
-__all__ = ["AuthRouter", "ContainerRouter", "HostRouter", "ApiKeyRouter", "PlayerRouter", "SystemRouter"]
+__all__ = [
+    "AuthRouter",
+    "ContainerRouter",
+    "HostRouter",
+    "ApiKeyRouter",
+    "PlayerRouter",
+    "SystemRouter",
+    "UserRouter"
+]
 
+from .users import UserRouter
 from .auth import AuthRouter
 from .container import ContainerRouter
 from .host import HostRouter

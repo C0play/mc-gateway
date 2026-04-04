@@ -9,6 +9,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import APIKeyHeader, OAuth2PasswordBearer
 
 from .context import AuthContext
+from ...exceptions import NotFoundError
 from ...utils.logger import logger
 
 if TYPE_CHECKING:
@@ -41,6 +42,7 @@ class AuthenticationManager:
         api_key: Annotated[str | None, Depends(api_key_header)],
         access_token: Annotated[str | None, Depends(oauth2_scheme)],
     ) -> AuthContext:
+
         if not (api_key or access_token):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -48,23 +50,34 @@ class AuthenticationManager:
             )
 
         user_records = None
+
         if api_key:
-            key_record = self.keys.read_from_unhashed_key(api_key)
+            try:
+                key_record = self.keys.read_from_unhashed_key(api_key)
+            except NotFoundError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=str(e)
+                )
+
             user_records = self.users.read(email=key_record.user)
+
         elif access_token:
             if not self.sessions.validate(UUID(access_token)):
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="session invalid"
                 )
+
             session_record = self.sessions.get(uuid=UUID(access_token))
             user_records = self.users.read(email=session_record.user)
+        
         else:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="user not found"
             )
-        
+
         user = user_records[0]
         email = cast(str, user.email)
         role = cast(str, user.role)

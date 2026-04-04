@@ -9,3 +9,8 @@ class RegisterRequest(BaseModel):
 class RegisterResponse(BaseModel):
     email: str = Field(..., description="Registered user email")
     api_key: str = Field(..., description="Newly created API key")
+
+
+class User(BaseModel):
+    email: str = Field(..., description="Registered user email")
+    role: str = Field(..., description="User's assigned role")

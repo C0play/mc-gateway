@@ -20,7 +20,7 @@ class Permission(IntEnum):
     container_manage_own    = auto()
     whitelist_manage_own    = auto()
     api_keys_manage_own     = auto()
-    user_manage_own         = auto()
+    users_manage_own         = auto()
     # other
     server_manage           = auto()
 
@@ -76,7 +76,7 @@ class RoleRepository:
             "user": self.perms.combine([
                 Permission.api_keys_manage_own,
                 Permission.container_manage_own,
-                Permission.user_manage_own,
+                Permission.users_manage_own,
                 Permission.whitelist_manage_own,
             ])
         }

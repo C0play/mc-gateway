@@ -53,6 +53,9 @@ class BaseKeyRepository(ABC):
 
         Returns:
             APiKey: APiKey model instances.
+
+        Raises:
+            NotFoundError: If the api key does not exist.
         """
         ...
     
@@ -69,12 +72,12 @@ class BaseKeyRepository(ABC):
             ApiKey: The updated ApiKey instance.
 
         Raises:
-            NotFoundError: If the api_key does not exist.
+            NotFoundError: If the api key does not exist.
         """
         ...
 
     @abstractmethod
-    def delete(self, api_key: str,) -> ApiKey:
+    def delete(self, email: str, name: str) -> ApiKey:
         """
         Removes an ApiKey record.
 
@@ -142,16 +145,18 @@ class SQLKeyRepository(BaseKeyRepository):
         return ApiKey.get(ApiKey.key_hash == api_key)
 
 
-    def delete(self, api_key: str,) -> ApiKey:
-        key_hash = sha256_hex(api_key)
-        record = ApiKey.get_or_none(ApiKey.key_hash == key_hash)
-        if record is None:
-            raise NotFoundError(f"API key does not exist")
-
+    def delete(self, email: str, name: str) -> ApiKey:
+        key = (ApiKey
+                .select()
+                .where(ApiKey.user == email, ApiKey.name == name)
+        )
+        
         rows_deleted = (ApiKey
                         .delete()
-                        .where(ApiKey.key_hash == key_hash)
-                        .execute())
+                        .where(ApiKey.user == email, ApiKey.name == name)
+                        .execute()
+        )
+        
         if rows_deleted == 0:
             raise NotFoundError(f"API key does not exist")
-        return record
+        return key

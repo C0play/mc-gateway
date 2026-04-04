@@ -2,10 +2,13 @@ from abc import ABC, abstractmethod
 
 from .repository import BaseUserRepository, SQLUserRepository
 from ...security.roles import RoleRepository, Permission
+from ..models.user import User
+from ..mappers.user import user_from_record
 
-from ....utils.models import User
+
 from ....utils.logger import logger
 from ....exceptions.errors import NotFoundError
+
 
 
 class BaseUserManager(ABC):
@@ -79,6 +82,20 @@ class BaseUserManager(ABC):
         ...
 
     @abstractmethod
+    def update(self, user_email: str, **fields) -> User:
+        """
+        Update a User.
+
+        Args:
+            user_email: The email of the User to update.
+            **fields: Key value pair of field names and new values.
+
+        Raises:
+            NotFoundError: If the User does not exist.
+        """
+        ...
+
+    @abstractmethod
     def delete(self, user_email: str,) -> User:
         """
         Deletes a User.
@@ -104,12 +121,12 @@ class SQLUserManager(BaseUserManager):
 
     def create(self, user_email: str, password: str, role: str) -> User:
         user = self.users.create(user_email, password, role)
-        return user
+        return user_from_record(user)
 
 
     def read(self, **filters) -> list[User]:
-        return self.users.read(**filters)
-
+        records = self.users.read(**filters)
+        return [user_from_record(r) for r in records]
 
     def validate_permission(self, user_email: str, permission: Permission) -> bool:
         users = self.users.read(email=user_email)
@@ -129,7 +146,11 @@ class SQLUserManager(BaseUserManager):
         return self.users.validate_password(user_email, password)
 
 
-    def delete(self, user_email: str) -> User:
-        return self.users.delete(user_email)
+    def update(self, user_email: str, **fields) -> User:
+        user = self.users.update(user_email, **fields)
+        return user_from_record(user)
 
+    def delete(self, user_email: str) -> User:
+        user = self.users.delete(user_email)
+        return user_from_record(user)
 

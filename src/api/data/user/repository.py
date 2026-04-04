@@ -114,6 +114,8 @@ class SQLUserRepository(BaseUserRepository):
     def read(self, **filters) -> list[User]:
         query = User.select()
         for field, value in filters.items():
+            if value is None:
+                continue
             query = query.where(getattr(User, field) == value)
         return list(query)
 

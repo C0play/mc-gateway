@@ -2,7 +2,9 @@ from abc import ABC, abstractmethod
 
 from ....exceptions.errors import NotFoundError
 from .repository import BaseKeyRepository, SQLKeyRepository
-from ....utils.models import ApiKey
+from ..models.api_key import ApiKey
+from ..mappers.api_key import apikey_from_record
+
 
 class BaseKeyManager(ABC):
 
@@ -11,12 +13,12 @@ class BaseKeyManager(ABC):
         self.keys = key_repository
 
     @abstractmethod
-    def create(self, user_email: str, name: str) -> str:
+    def create(self, email: str, name: str) -> str:
         """
         Creates a new key with the specified name for the user .
 
         Args:
-            user_email: Email address of the user to create the key for.
+            email: Email address of the user to create the key for.
             name: Name for the key.
             
         Returns:
@@ -53,7 +55,7 @@ class BaseKeyManager(ABC):
         ...
 
     @abstractmethod
-    def deactivate(self, email: str, name: str) -> None:
+    def deactivate(self, email: str, name: str) -> ApiKey:
         """
         Marks the api key as inactive.
 
@@ -66,7 +68,7 @@ class BaseKeyManager(ABC):
         """
 
     @abstractmethod
-    def delete(self, key: str) -> None:
+    def delete(self, email: str, name: str) -> ApiKey:
         """
         Deletes the api key permanently.
 
@@ -85,26 +87,29 @@ class SQLKeyManager(BaseKeyManager):
         super().__init__(key_repository)
     
     
-    def create(self, user_email: str, name: str) -> str:
-        return self.keys.create(user_email, name)
+    def create(self, email: str, name: str) -> str:
+        return self.keys.create(email, name)
     
     def read(self, **filters) -> list[ApiKey]:
-        return self.keys.read(**filters)
+        records = self.keys.read(**filters)
+        return [apikey_from_record(r) for r in records] 
 
     def read_from_unhashed_key(self, key: str) -> ApiKey:
-        return self.keys.read_from_unhashed_key(key)
+        record = self.keys.read_from_unhashed_key(key)
+        return apikey_from_record(record)
 
-    def deactivate(self, email: str, name: str) -> None:
+    def deactivate(self, email: str, name: str) -> ApiKey:
         records = self.keys.read(user=email, name=name)
         if not records:
             raise NotFoundError(f"key {name} does not exist")
         
         key_hash = str(records[0].key_hash)
-        self.keys.update(key_hash, active=False)
+        record = self.keys.update(key_hash, active=False)
+        return apikey_from_record(record)
 
-    def delete(self, key: str) -> None:
-        self.keys.delete(key)
-
+    def delete(self, email: str, name: str) -> ApiKey:
+        record = self.keys.delete(email, name)
+        return apikey_from_record(record)
 
 
     

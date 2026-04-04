@@ -75,13 +75,13 @@ class API:
         authorization = AuthorizationManager(roles, permissions, authentication)
 
         session_service = SessionService(users = users, sessions = sessions)
-        api_key_service = ApiKeyService(keys = keys)
         host_service = HostService(server = self.server)
         container_service = ContainerService(server = self.server)
         player_service = PlayerService(server = self.server)
 
         auth_router = AuthRouter(session_service, authentication).get_router()
-        key_router = ApiKeyRouter(api_key_service, authorization).get_router()
+        key_router = ApiKeyRouter(keys, authorization).get_router()
+        user_router = UserRouter(users, authorization).get_router()
         host_router = HostRouter(host_service, authorization).get_router()
         container_router = ContainerRouter(container_service, authorization).get_router()
         player_router = PlayerRouter(player_service, authorization).get_router()
@@ -89,6 +89,7 @@ class API:
 
         self.app.include_router(auth_router)
         self.app.include_router(key_router)
+        self.app.include_router(user_router)
         self.app.include_router(host_router)
         self.app.include_router(container_router)
         self.app.include_router(player_router)
