@@ -1,10 +1,9 @@
 from typing import TYPE_CHECKING
+from fastapi import APIRouter, Security
 
-from fastapi import APIRouter, Depends
-
-from ..data.models.response import MessageResponse, StatusResponse
+from ..data.models.response import MessageResponse
+from ..data.models.system import StatusResponse
 from ..security import AuthorizationManager, Permission
-from .utils import handle_errors
 
 if TYPE_CHECKING:
     from ...gateway.server import Server
@@ -12,6 +11,7 @@ if TYPE_CHECKING:
 
 
 class SystemRouter:
+    """Defines API endpoints used for system management."""
 
     def __init__(self, server: 'Server', auth: AuthorizationManager) -> None:
         self.server = server
@@ -22,25 +22,25 @@ class SystemRouter:
         
         system_router = APIRouter(prefix="/system", tags=["system"])
 
+        REQ = self.auth.require
 
         @system_router.get(
             "/status",
-            dependencies=[Depends(self.auth.require(Permission.status_get))],
+            dependencies=[Security(REQ, scopes=[Permission.system_status_read])],
             response_model=StatusResponse,
         )
-        @handle_errors
         def fetch_system_status():
             return StatusResponse(
-                clients=self.server.get_client_count(),
-                sessions=len(self.server._sessions.list()),
-                containers=len(self.server._sessions.containers.list()),
-                hosts=len(self.server._sessions.containers.hosts.list()),
+                clients     = self.server.get_client_count(),
+                sessions    = len(self.server._sessions.list()),
+                containers  = len(self.server._sessions.containers.list()),
+                hosts       = len(self.server._sessions.containers.hosts.list()),
             )
 
 
         @system_router.post(
             "/stop",
-            dependencies=[Depends(self.auth.require(Permission.server_manage))],
+            dependencies=[Security(REQ, scopes=[Permission.system_manage])],
             response_model=MessageResponse,
         )
         def initiate_server_shutdown():

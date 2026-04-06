@@ -1,47 +1,41 @@
-from typing import (
-    Annotated,
-)
-from fastapi import (
-    Depends
-)
+from typing import Annotated
+
+from fastapi import Depends
+from fastapi import HTTPException, status
+from fastapi.security import SecurityScopes
 
 from .context import AuthContext
 from .authentication import AuthenticationManager
-from .roles import PermissionRepository, RoleRepository, Permission
-from ...exceptions import ForbiddenError
 
 
 
 class AuthorizationManager:
+    """
+    Class responsible for the authorization of API requests.
+    Exposes the require property meant for use with FastAPI Security function. 
+    """
 
-    def __init__(
-        self,
-        roles: RoleRepository,
-        permissions: PermissionRepository,
-        auth_manager: AuthenticationManager,
-    ) -> None:
-        self.roles = roles
-        self.permissions = permissions
+    def __init__(self, auth_manager: AuthenticationManager) -> None:
         self.auth_manager = auth_manager
 
 
-    def require(self, required_permission: Permission):
+    @property
+    def require(self):
+        """
+        Checks if the user making the request has the required scopes. 
+        Does not check ownership of the requested resources.
+        """
         def _dependency(
-            auth_context: Annotated[AuthContext, Depends(self.auth_manager.get_auth_context)],
-        ) -> None:
-            if not self.roles.validate(required_permission, auth_context.user_role):
-                raise ForbiddenError("action not permitted")
-        
-        return _dependency
-
-
-    def require_any(self, *required_permissions: Permission):
-        def _dependency(
+            security_scopes: SecurityScopes,
             auth_context: Annotated[AuthContext, Depends(self.auth_manager.get_auth_context)],
         ) -> AuthContext:
-            for permission in required_permissions:
-                if self.roles.validate(permission, auth_context.user_role):
-                    return auth_context
-            raise ForbiddenError("action not permitted")
+            for scope in security_scopes.scopes:
+                if not self.auth_manager.roles.validate(scope, auth_context.user_role):
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="action not permitted",
+                    )
+            
+            return auth_context
 
         return _dependency

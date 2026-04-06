@@ -9,7 +9,6 @@ if TYPE_CHECKING:
     from .container import ContainerConfig
 
 
-
 def validate_linux_user(v: str) -> str:
     """Validates Linux username format."""
     
@@ -73,10 +72,7 @@ def to_Mb(ram: str) -> int:
 
 
 def validate_init_min_max_consistency(init: str | None, max: str | None) -> None:
-    """
-    Ensures that min < max.
-    Implicitely calls validate_ram_format() for all parameters.
-    """
+    """Ensures that min < max. Implicitely calls validate_ram_format() for all parameters."""
 
     if not (init and max):
         return

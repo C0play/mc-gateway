@@ -1,15 +1,15 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Security
 from pydantic import IPvAnyAddress
 
 from ..data.models.host import HostData, OptHostData, FullHost
-from ..data.models.response import ListResponse, MessageResponse
+from ..data.models.response import MessageResponse
 from ..services.host import HostService
-from .utils import handle_errors
 from ..security import AuthorizationManager, Permission
 
 
 
 class HostRouter:
+    """Defines API endpoints used for host management."""
 
     def __init__(self, host_service: HostService, auth: AuthorizationManager) -> None:
         self.hosts = host_service
@@ -20,36 +20,52 @@ class HostRouter:
         
         router = APIRouter(
             prefix="/host",
-            tags=["hosts"],
-            dependencies=[Depends(self.auth.require(Permission.host_manage_all))] 
+            tags=["hosts"]
         )
 
-        @router.post("/add", response_model=HostData)
-        @handle_errors
+        REQ = self.auth.require
+
+        @router.post(
+            "/add",
+            dependencies=[Security(REQ, scopes=[Permission.host_create])],
+            response_model=HostData
+        )
         def create_host(host: FullHost):
             return self.hosts.add(host)
 
 
-        @router.put("/update/{ip}", response_model=FullHost)
-        @handle_errors
+        @router.put(
+            "/update/{ip}",
+            dependencies=[Security(REQ, scopes=[Permission.host_update])],
+            response_model=FullHost
+        )
         def update_host(ip: IPvAnyAddress, data: OptHostData):
             return self.hosts.update(str(ip), data)
 
 
-        @router.delete("/remove/{ip}", response_model=FullHost)
-        @handle_errors
+        @router.delete(
+            "/remove/{ip}",
+            dependencies=[Security(REQ, scopes=[Permission.host_delete])],
+            response_model=FullHost
+        )
         def remove_host(ip: IPvAnyAddress):
             return self.hosts.remove(str(ip))
 
 
-        @router.post("/kick/{ip}", response_model=MessageResponse)
-        @handle_errors
+        @router.post(
+            "/kick/{ip}",
+            dependencies=[Security(REQ, scopes=[Permission.host_kick])],
+            response_model=MessageResponse
+        )
         def kick_all_from_host(ip: IPvAnyAddress):
             return self.hosts.kick(str(ip))
 
 
-        @router.get("/list", response_model=ListResponse)
-        @handle_errors
+        @router.get(
+            "/list",
+            dependencies=[Security(REQ, scopes=[Permission.host_read])],
+            response_model=list[FullHost]
+        )
         def fetch_host(ip: IPvAnyAddress | None = None):
             str_ip = str(ip) if ip is not None else None
             return self.hosts.read(str_ip)

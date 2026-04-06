@@ -1,9 +1,9 @@
 from datetime import datetime
-
 from pydantic import BaseModel, Field
 
 
-class ApiKey(BaseModel): 
+class ApiKey(BaseModel):
+    """API key model equivalent to a DB record."""
     active : bool = Field(..., description="Flag whether the keys is active.")
     name: str = Field(..., description="Key name.")
     created_at : datetime = Field(..., description="Date of creation.")

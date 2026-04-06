@@ -1,17 +1,18 @@
 from typing import Annotated
 from datetime import datetime
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Security
 
-from ..data.api_key.manager import SQLKeyManager
-from ..data.models.response import ListResponse, MessageResponse
+from ..data.api_key.repository import BaseKeyRepository
+from ..data.models.response import MessageResponse
+from ..data.models.api_key import ApiKey
 from ..security import AuthContext, AuthorizationManager, Permission
-from .utils import handle_errors
 
 
 
 class ApiKeyRouter:
+    """Defines API endpoints used for api key management."""
 
-    def __init__(self, api_key_manager: SQLKeyManager, auth: AuthorizationManager) -> None:  
+    def __init__(self, api_key_manager: BaseKeyRepository, auth: AuthorizationManager) -> None:  
         self.api_keys = api_key_manager
         self.auth = auth
 
@@ -20,42 +21,33 @@ class ApiKeyRouter:
 
         router = APIRouter(prefix="/apikey", tags=["api keys"])
 
-        MANAGE_ALL = self.auth.require_any(
-            Permission.api_keys_manage_all
-        )
-        MANAGE_ANY = self.auth.require_any(
-            Permission.api_keys_manage_own,
-            Permission.api_keys_manage_all
-        )
-
+        REQ = self.auth.require
 
         @router.post("/create", response_model=MessageResponse)
-        @handle_errors
         def create_api_key(
-            auth: Annotated[AuthContext, Depends(MANAGE_ANY)],
-            owner_email: str | None,
+            auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.api_key_create])],
+            email: str | None,
             name: str | None
         ):
             if name is None:
                 name = "default" + str(datetime.now().microsecond)[:4]
 
-            if not self._is_admin(auth):
+            if auth.user_role.requires_ownership:
                 return self.api_keys.create(auth.user_email, name)
             
-            if owner_email is not None:
-                return self.api_keys.create(owner_email, name)
+            if email is not None:
+                return self.api_keys.create(email, name)
             else:
                 return self.api_keys.create(auth.user_email, name)
 
 
-        @router.get("/list", response_model=ListResponse)
-        @handle_errors
+        @router.get("/list", response_model=list[ApiKey])
         def fetch_api_keys(
-            auth: Annotated[AuthContext, Depends(MANAGE_ANY)],
+            auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.api_key_read])],
             name: str | None = None,
             email: str | None = None
         ):
-            if not self._is_admin(auth):
+            if auth.user_role.requires_ownership:
                 return self.api_keys.read(
                     user = auth.user_email,
                     name = name
@@ -65,35 +57,27 @@ class ApiKeyRouter:
         
 
         @router.delete("/revoke/{name}", response_model=MessageResponse)
-        @handle_errors
         def revoke_api_key(
-            auth: Annotated[AuthContext, Depends(MANAGE_ANY)],
+            auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.api_key_revoke])],
             name: str,
-            owner_email: str | None,
+            email: str | None,
         ):
-            if not self._is_admin(auth):
-                return self.api_keys.deactivate(auth.user_email, name)
+            if auth.user_role.requires_ownership:
+                return self.api_keys.update(auth.user_email, name, active=False)
             
-            if owner_email is not None:
-                return self.api_keys.deactivate(owner_email, name)
+            if email is not None:
+                return self.api_keys.update(email, name, active=False)
             else:
-                return self.api_keys.deactivate(auth.user_email, name)
+                return self.api_keys.update(auth.user_email, name, active=False)
         
         
         @router.delete(
             "/delete/{name}",
-            dependencies=[Depends(MANAGE_ALL)],
+            dependencies=[Security(REQ, scopes=[Permission.api_key_delete])],
             response_model=MessageResponse
         )
-        @handle_errors
         def delete_api_key(name: str, owner_email: str):
             return self.api_keys.delete(owner_email, name)
 
 
         return router
-    
-    
-    # =================================== HELPERS ===================================
-
-    def _is_admin(self, auth_context: AuthContext) -> bool:
-        return self.auth.roles.validate(Permission.api_keys_manage_all, auth_context.user_role)

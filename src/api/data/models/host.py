@@ -19,8 +19,7 @@ class HostConfig(BaseModel):
     """
     Host-specific config injected into compose.yml.
     Stored as JSON in the Host.config column.
-    Every field has a default, so an empty JSON object is valid.
-    Adding new fields with defaults requires zero DB migration.
+    Every field has a default in the compose file, so an empty JSON object is valid.
     """
 
     user: str = Field(..., max_length=50, description="User of the host machine")
@@ -58,10 +57,7 @@ class HostConfig(BaseModel):
 
 
 class OptHostConfig(BaseModel):
-    """
-    Partial host config for updates.
-    Only provided fields will be merged with existing config.
-    """
+    """Partial host config for updates."""
 
     user: str | None = Field(None, max_length=50, description="User of the host machine")
     path: str | None = Field(None, description="Path to the directory containing all minecraft server directories")
@@ -107,14 +103,17 @@ class HostID(BaseModel):
 
 
 class HostData(BaseModel):
+    """Host parameters."""
     mac: MacAddress = Field(..., description="MAC address of the host machine")
     config: HostConfig = Field(..., description="Host-specific compose.yml config")
 
 
 class OptHostData(BaseModel):
+    """Host parameters for updating."""
     mac: MacAddress | None = Field(None, description="MAC address of the host machine")
     config: OptHostConfig | None = Field(None, description="Partial host-specific compose.yml config (merged with existing)")
 
 
 class FullHost(HostID, HostData):
+    """Host model equivalent to a DB record."""
     pass

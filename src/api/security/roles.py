@@ -1,60 +1,108 @@
-from enum import IntEnum, auto
+from enum import StrEnum, auto
+from dataclasses import dataclass
+
 from ...exceptions.errors import NotFoundError
 
 
-class Permission(IntEnum):
-    # all CRUD endpoints
-    host_manage_all         = auto()
-    container_manage_all    = auto()
-    whitelist_manage_all    = auto()
-    api_keys_manage_all     = auto()
-    users_manage_all        = auto()
-    # all _R__ endpoints (monitoring etc.)
-    host_get_all            = auto()
-    container_get_all       = auto()
-    whitelist_get_all       = auto()
-    api_key_get_all         = auto()
-    user_get_all            = auto()
-    status_get              = auto()
-    # all _RU_ endpoints restricted to user's own data
-    container_manage_own    = auto()
-    whitelist_manage_own    = auto()
-    api_keys_manage_own     = auto()
-    users_manage_own         = auto()
-    # other
-    server_manage           = auto()
+
+class Permission(StrEnum):
+    """Enum defining all permissions a user can have."""
+
+    description: str
+
+    def __new__(cls, scope: str | int, description: str):
+        scope_str = str(scope)
+        obj = str.__new__(cls, scope_str)
+        obj._value_ = scope_str
+        obj.description = description
+        return obj
+
+    @staticmethod
+    def _generate_next_value_(name, start, count, last_values):
+        return name.replace("_", ":")
+
+    def __str__(self) -> str:
+        return self.value
+    
+    # Hosts
+    host_create         = auto(), "Register a host machine"
+    host_read           = auto(), "Fetch host machine data"
+    host_update         = auto(), "Update a host machine"
+    host_delete         = auto(), "Delete a host machine"
+    host_kick           = auto(), "Kick all players from all containers running on a host"
+
+    # Containers
+    container_create    = auto(), "Create a container "
+    container_read      = auto(), "Fetch container data configuration"
+    container_update    = auto(), "Update a container"
+    container_delete    = auto(), "Delete a container"
+    container_kick      = auto(), "Kick all players from a container"
+
+    # Whitelists
+    whitelist_create    = auto(), "Add a player to a containers whitelist"
+    whitelist_read      = auto(), "Fetch a container's whitelist"
+    whitelist_delete    = auto(), "Remove a player from a containers whitelist"
+    whitelist_kick      = auto(), "Kick a player from a container"
+
+    # Api keys
+    api_key_create      = auto(), "Create an api key"
+    api_key_read        = auto(), "Fetch api key data"
+    api_key_revoke      = auto(), "Revoke an api key"
+    api_key_delete      = auto(), "Delete an api key permanently"
+
+    # Users
+    user_read           = auto(), "Read user data"
+    user_update         = auto(), "Update user data"
+    user_delete         = auto(), "Delete a user"
+
+    # Other
+    system_status_read  = auto(), "Fetch active sessions, hosts and containers counts"
+    system_manage       = auto(), "Issue shutdown commands"
 
 
 
 class PermissionRepository:
+    """Class storing all permissions as bit masks."""
 
     def __init__(self) -> None:
-        self.permissions = {}
+        self.permissions: dict[str, int] = {}
 
     
     def add(self, permission: Permission) -> 'PermissionRepository':
-        self.permissions[permission.name] = (1 << len(self.permissions))
+        """Adds a new permission <-> bitmask mapping."""
+        self.permissions[permission] = (1 << len(self.permissions))
         return self
     
 
     def get(self, permission: Permission) -> int:
-        if permission.name not in self.permissions:
-            raise NotFoundError(f"permission {permission.name} does not exist")
-        return self.permissions[permission.name]
+        """Retrievs a permission's bitmask."""
+        if permission not in self.permissions:
+            raise NotFoundError(f"permission {permission} does not exist")
+        return self.permissions[permission]
 
 
-    def combine(self, permissions: list[Permission]) -> int:
+    def combine(self, permissions: list[Permission | str]) -> int:
+        """Combines multiple permissions into a single bitmask."""
         res = 0
         for perm in permissions:
-            if perm.name not in self.permissions:
-                raise NotFoundError(f"permission {perm.name} does not exist")
-            res = res | self.permissions[perm.name]
+            if perm not in self.permissions:
+                raise NotFoundError(f"permission {perm} does not exist")
+            res = res | self.permissions[perm]
 
         return res
             
-        
+
+
+@dataclass(frozen=True)
+class Role:
+    name: str
+    permissions: int
+    requires_ownership: bool
+
+
 
 class RoleRepository:
+    """Class storing roles as aliases for permission sets."""
 
     def __init__(self) -> None:
         
@@ -63,34 +111,52 @@ class RoleRepository:
         for permission in Permission:
             self.perms.add(permission)
 
-        self.roles = {
-            "superadmin": self.perms.combine([
-                Permission.host_manage_all,
-                Permission.container_manage_all,
-                Permission.whitelist_manage_all,
-                Permission.api_keys_manage_all,
-                Permission.users_manage_all,
-                Permission.status_get,
-                Permission.server_manage,
-            ]),
-            "user": self.perms.combine([
-                Permission.api_keys_manage_own,
-                Permission.container_manage_own,
-                Permission.users_manage_own,
-                Permission.whitelist_manage_own,
-            ])
-        }
+        roles = [
+            Role(
+                name="superadmin",
+                permissions=self.perms.combine([p for p in Permission]),
+                requires_ownership=False,
+            ),
+            Role(
+                name="user",
+                permissions=self.perms.combine(
+                    [
+                        Permission.api_key_create,
+                        Permission.api_key_read,
+                        Permission.api_key_revoke,
+                        Permission.container_read,
+                        Permission.container_update,
+                        Permission.container_kick,
+                        Permission.whitelist_read,
+                        Permission.whitelist_create,
+                        Permission.whitelist_delete,
+                        Permission.whitelist_kick,
+                        Permission.user_read,
+                    ]
+                ),
+                requires_ownership=True,
+            ),
+        ]
+
+        self.roles: dict[str, Role] = {role.name: role for role in roles}
 
 
-    def get(self, name: str) -> int:
+    def get(self, name: str) -> Role:
         if name not in self.roles:
             raise NotFoundError(f"role {name} does not exist")
         
         return self.roles[name]
     
 
-    def validate(self, permission: Permission, role: str) -> bool:
-        permission_val = self.perms.get(permission)
-        role_val = self.get(role)
+    def validate(self, requested_scope: str, role: Role) -> bool:
+        try:
+            permission = Permission(requested_scope)
+        except ValueError:
+            return False
 
-        return (permission_val & role_val) > 0
+        permission_val = self.perms.get(permission)
+
+        return (permission_val & role.permissions) > 0
+    
+
+SCOPES: dict[str, str] = {p.value: p.description for p in Permission}

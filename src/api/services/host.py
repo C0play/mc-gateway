@@ -1,16 +1,19 @@
+from typing import TYPE_CHECKING
+
 from ..data.mappers.host import full_host_from_record
 from ..data.models.host import FullHost, HostConfig, OptHostData
-from ..data.models.container import merge_configs
-from ..data.models.response import ListResponse, MessageResponse
+from ..data.models.utils import merge_configs
+from ..data.models.response import MessageResponse
+
 from ...exceptions.errors import NotFoundError
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ...gateway.server import Server
 
 
 
 class HostService:
+    """Utility class for executing API requests"""
 
     def __init__(self, *,server: 'Server') -> None:
         self.hosts = server._sessions.containers.hosts
@@ -63,7 +66,6 @@ class HostService:
         )
 
     
-    def read(self, ip: str | None = None) -> ListResponse:
+    def read(self, ip: str | None = None) -> list[FullHost]:
         query = self.hosts.storage.read(ip=ip)
-        lst = [full_host_from_record(row) for row in query]
-        return ListResponse(root=lst)
+        return [full_host_from_record(row) for row in query]

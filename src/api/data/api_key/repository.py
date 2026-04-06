@@ -3,7 +3,10 @@ import datetime
 
 from peewee import IntegrityError
 
-from ....utils.models import ApiKey
+from ..models.api_key import ApiKey
+from ..mappers.api_key import apikey_from_record
+
+from ....utils.models import ApiKeyRecord
 from ....exceptions.errors import NotFoundError, ServiceError
 from ....security.hashing import sha256_hex
 from ....security.tokens import generate_token_urlsafe
@@ -11,19 +14,19 @@ from ....security.tokens import generate_token_urlsafe
 
 
 class BaseKeyRepository(ABC):
-    """A base class for managing whitelist parameters stored in persistent storage"""
+    """A base class for managing api keys stored in persistent storage"""
     
     @abstractmethod
-    def create(self, user_email: str, name: str) -> str:
+    def create(self, email: str, name: str) -> str:
         """
-        Registeres an APiKey withe the specified name for a user.
+        Registers an ApiKey with the specified name for a user.
 
         Args:
-            user_email: The users's email.
+            email: The users's email.
             name: Name for the key.
 
         Returns:
-            api_key: Unhashed API key (keys are hashed at rest).
+            str: Unhashed API key (keys are hashed at rest).
 
         Raises:
             NotFoundError: If the user with the specified email does not exist.
@@ -33,26 +36,26 @@ class BaseKeyRepository(ABC):
     @abstractmethod
     def read(self, **filters) -> list[ApiKey]:
         """
-        Retrieves APiKey records matching the given filters.
+        Retrieves ApiKeys matching the given filters.
 
         Args:
             **filters: Field names and values to filter by.
 
         Returns:
-            list[APiKey]: Matching APiKey model instances.
+            list[ApiKey]: Matching ApiKey model instances.
         """
         ...
 
     @abstractmethod
-    def read_from_unhashed_key(self, api_key: str) -> ApiKey:
+    def read_from_unhashed_key(self, key: str) -> ApiKey:
         """
-        Retrieves APiKey record based on the provided unhashed key.
+        Retrieves an ApiKey from the provided unhashed key.
 
         Args:
-             api_key: Unhashed API key.
+            key: Unhashed API key.
 
         Returns:
-            APiKey: APiKey model instances.
+            ApiKey: ApiKey model instance.
 
         Raises:
             NotFoundError: If the api key does not exist.
@@ -60,12 +63,13 @@ class BaseKeyRepository(ABC):
         ...
     
     @abstractmethod
-    def update(self, api_key: str, **fields) -> ApiKey:
+    def update(self, email: str, name: str, **fields) -> ApiKey:
         """
-        Updates arbitrary fields on a ApiKey record.
+        Updates arbitrary fields on an ApiKey record.
 
         Args:
-            key: The hashed api key of the user.
+            email: The key's owner's email address.
+            name: The key's name.
             **fields: Field names and their new values.
 
         Returns:
@@ -82,7 +86,8 @@ class BaseKeyRepository(ABC):
         Removes an ApiKey record.
 
         Args:
-            key: The unhashed key to remove.
+            email: The key's owner's email address.
+            name: The key's name.
 
         Raises:
             NotFoundError: If the api key does not exist.
@@ -93,70 +98,71 @@ class BaseKeyRepository(ABC):
 
 class SQLKeyRepository(BaseKeyRepository):
     """
-    Implementation of host storage using Peewee ORM.
+    Implementation of api key storage using Peewee ORM.
     """
     
-    def create(self, user_email: str, name: str) -> str:
+    def create(self, email: str, name: str) -> str:
         try:
             plain_key = generate_token_urlsafe(32)
             hashed_key = sha256_hex(plain_key)
             today = datetime.datetime.today()
-            ApiKey.create(
+            ApiKeyRecord.create(
                 key_hash=hashed_key,
                 created_at=today,
                 last_used_at=today,
-                user=user_email,
+                user=email,
                 name=name,
             )
             return plain_key
         except IntegrityError as e:
-            raise NotFoundError(f"user {user_email} does not exist: {e}")
+            raise NotFoundError(f"user {email} does not exist: {e}")
         except Exception as e:
             raise ServiceError(f"unexpected error while creating a new API key: {e}")
 
 
     def read(self, **filters) -> list[ApiKey]:
-        query = ApiKey.select()
+        query = ApiKeyRecord.select()
         for field, value in filters.items():
             if value is None:
                 continue
-            query = query.where(getattr(ApiKey, field) == value)
-        return list(query)
+            query = query.where(getattr(ApiKeyRecord, field) == value)
+        return [apikey_from_record(r) for r in list(query)]
 
 
-    def read_from_unhashed_key(self, api_key: str) -> ApiKey:
-        key_hash = sha256_hex(api_key)
-        record = (ApiKey
-                    .select()
-                    .where(ApiKey.key_hash == key_hash)
-                    .first())
-        if record is None:
-            raise NotFoundError("API key does not exist")
-        return record
+    def read_from_unhashed_key(self, key: str) -> ApiKey:
+        key_hash = sha256_hex(key)
+        return self._read_one(key_hash=key_hash)
         
 
-    def update(self, api_key: str, **fields) -> ApiKey:
-        rows = (ApiKey
-                    .update(**fields)
-                    .where(ApiKey.key_hash == api_key)
-                    .execute())
+    def update(self, email: str, name: str, **fields) -> ApiKey:
+        rows = (
+            ApiKeyRecord
+                .update(**fields)
+                .where(ApiKeyRecord.user == email, ApiKeyRecord.name == name)
+                .execute()
+        )
         if rows == 0:
-            raise NotFoundError(f"API key does not exist")
-        return ApiKey.get(ApiKey.key_hash == api_key)
-
+            raise NotFoundError("API key does not exist")
+        
+        return self._read_one(user=email, name=name)
+    
 
     def delete(self, email: str, name: str) -> ApiKey:
-        key = (ApiKey
-                .select()
-                .where(ApiKey.user == email, ApiKey.name == name)
+        key = self._read_one(user=email, name=name)
+        deleted_count = (
+            ApiKeyRecord
+                .delete()
+                .where(ApiKeyRecord.user == email, ApiKeyRecord.name == name)
+                .execute()
         )
-        
-        rows_deleted = (ApiKey
-                        .delete()
-                        .where(ApiKey.user == email, ApiKey.name == name)
-                        .execute()
-        )
-        
-        if rows_deleted == 0:
+        if deleted_count == 0:
             raise NotFoundError(f"API key does not exist")
+        
         return key
+    
+
+    def _read_one(self, **filters) -> ApiKey:
+        keys = self.read(**filters)
+        if not keys or len(keys) > 1:
+            raise NotFoundError("API key does not exist")
+        return keys[0]

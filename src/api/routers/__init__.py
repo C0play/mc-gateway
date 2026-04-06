@@ -3,7 +3,7 @@ __all__ = [
     "ContainerRouter",
     "HostRouter",
     "ApiKeyRouter",
-    "PlayerRouter",
+    "WhitelistRouter",
     "SystemRouter",
     "UserRouter"
 ]
@@ -13,5 +13,5 @@ from .auth import AuthRouter
 from .container import ContainerRouter
 from .host import HostRouter
 from .key import ApiKeyRouter
-from .player import PlayerRouter
+from .whitelist import WhitelistRouter
 from .system import SystemRouter

@@ -1,6 +1,9 @@
 from ..data.models.host import HostConfig
 
-from ..data.mappers.container import full_container_from_record
+from ..data.mappers.container import (
+    full_container_from_record,
+    user_full_container_from_record
+)
 from ..data.models.container import (
     ContainerConfig,
     ContainerData,
@@ -8,11 +11,12 @@ from ..data.models.container import (
     OptContainerData,
     UserOptContainerData,
     OptContainerConfig,
-    merge_configs
+    UserFullContainer
 )
 
 from ..data.models.validators import validate_container_ram_against_host
-from ..data.models.response import ListResponse, MessageResponse
+from ..data.models.response import MessageResponse
+from ..data.models.utils import merge_configs
 
 from ...utils.composegen import PERFORMANCE_MODS
 from ...utils.keygen import KeyGenerator
@@ -26,6 +30,7 @@ if TYPE_CHECKING:
 
 
 class ContainerService:
+    """Utility class for executing API requests"""
 
     def __init__(self, *, server: 'Server') -> None:
         self.containers = server._sessions.containers
@@ -53,7 +58,7 @@ class ContainerService:
         return full_container_from_record(container)
 
 
-    def update(self, subdomain: str, data: OptContainerData | UserOptContainerData) -> FullContainer:
+    def update(self, subdomain: str, data: OptContainerData | UserOptContainerData) -> FullContainer | UserFullContainer:
 
         data = ContainerService._generate_update_data(data)
 
@@ -88,6 +93,8 @@ class ContainerService:
         update_fields["initialized"] = False
 
         updated_container = self.containers.storage.update(subdomain, **update_fields)
+        if isinstance(data, UserOptContainerData):
+            return user_full_container_from_record(updated_container)
         return full_container_from_record(updated_container)
 
 
@@ -110,14 +117,15 @@ class ContainerService:
         return MessageResponse(message=f"All players from server {subdomain} have been kicked")
 
 
-    def read(self, subdomain: str | None = None, owner_email: str | None = None) -> ListResponse:
+    def read(self, subdomain: str | None = None, owner_email: str | None = None) -> list[FullContainer] | list[UserFullContainer]:
         query = self.containers.storage.read(
-            ubdomain = subdomain,
+            subdomain = subdomain,
             owner=owner_email,
         )
-        lst = [full_container_from_record(row) for row in query]
-        return ListResponse(root=lst)
-    
+        if owner_email is not None:
+            return [user_full_container_from_record(row) for row in query]
+        return [full_container_from_record(row) for row in query]
+
 
     def assert_owner(self, subdomain: str, owner_email: str) -> None:
         records = self.containers.storage.read(
@@ -125,7 +133,7 @@ class ContainerService:
             owner=owner_email,
         )
         if not records:
-            raise ForbiddenError("you are no the owner")
+            raise ForbiddenError("you are not the owner")
         
 
     @staticmethod
@@ -141,5 +149,6 @@ class ContainerService:
             ip = None,
             mc_port = None,
             rcon_port = None,
+            owner = None,
             config = config
         )

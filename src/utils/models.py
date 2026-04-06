@@ -19,7 +19,7 @@ def db_init(cfg: PostgresConfig):
         port=cfg.port,
     )
     __db__.connect()
-    __db__.create_tables([Host, User, Session, Container, Whitelist, ApiKey])
+    __db__.create_tables([Host, User, SessionRecord, Container, Whitelist, ApiKeyRecord])
 
 
 
@@ -38,7 +38,7 @@ class User(BaseModel):
 
 
 
-class ApiKey(BaseModel):
+class ApiKeyRecord(BaseModel):
     key_hash = peewee.CharField()
     name = peewee.CharField()
     active = peewee.BooleanField(default=True)
@@ -49,7 +49,7 @@ class ApiKey(BaseModel):
 
 
 
-class Session(BaseModel):
+class SessionRecord(BaseModel):
     id = peewee.UUIDField(unique=True, primary_key=True)
     created_at = peewee.DateTimeField(formats="%Y-%m-%d %H:%M:%S")
     valid_until = peewee.DateTimeField(formats="%Y-%m-%d %H:%M:%S")

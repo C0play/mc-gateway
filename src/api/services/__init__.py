@@ -1,6 +1,5 @@
-__all__ = ["ContainerService", "HostService", "PlayerService", "SessionService"]
+__all__ = ["ContainerService", "HostService", "WhitelistService"]
 
 from .container import ContainerService
 from .host import HostService
-from .player import PlayerService
-from .session import SessionService
+from .whitelist import WhitelistService

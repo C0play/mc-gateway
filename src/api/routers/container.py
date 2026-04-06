@@ -1,23 +1,21 @@
 from typing import Annotated
-
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Security
 
 from ..data.models.container import (
     ContainerData,
     OptContainerData,
     UserOptContainerData,
-    FullContainer
+    FullContainer,
+    UserFullContainer,
 )
-
-from ..data.models.response import ListResponse, MessageResponse
+from ..data.models.response import MessageResponse
 from ..services.container import ContainerService
-from .utils import handle_errors
 from ..security import Permission, AuthorizationManager, AuthContext
-from ...exceptions import ForbiddenError
 
 
 
 class ContainerRouter:
+    """Defines API endpoints used for container management."""
 
     def __init__(self, container_service: ContainerService, auth: AuthorizationManager) -> None:
         self.containers = container_service
@@ -28,63 +26,48 @@ class ContainerRouter:
 
         router = APIRouter(prefix="/container", tags=["containers"])
 
-        MANAGE_ALL = self.auth.require(Permission.container_manage_all)
-        MANAGE_ANY = self.auth.require_any(
-            Permission.container_manage_all,
-            Permission.container_manage_own
-        )
+        REQ = self.auth.require
 
         @router.post(
             "/add",
-            dependencies = [Depends(MANAGE_ALL)],
+            dependencies = [Security(REQ, scopes=[Permission.container_create])],
             response_model = FullContainer
         )
-        @handle_errors
         def create_container(data: ContainerData):
             return self.containers.add(data)
 
 
         @router.delete(
             "/remove/{subdomain}",
-            dependencies = [Depends(MANAGE_ALL)],
+            dependencies = [Security(REQ, scopes=[Permission.container_delete])],
             response_model = FullContainer
         )
-        @handle_errors
         def remove_container(subdomain: str):
             return self.containers.remove(subdomain)
         
 
         @router.put(
             "/update/{subdomain}",
-            response_model = FullContainer
+            response_model = FullContainer | UserFullContainer
         )
-        @handle_errors
         def update_container(
+            auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.container_update])],
             subdomain: str,
             data: OptContainerData | UserOptContainerData,
-            auth_context: Annotated[AuthContext, Depends(MANAGE_ANY)],
         ):
-            if not self._is_admin(auth_context):
-                self.containers.assert_owner(subdomain, auth_context.user_email)
+            if auth.user_role.requires_ownership:
+                self.containers.assert_owner(subdomain, auth.user_email)
 
             return self.containers.update(subdomain, data)
 
 
-        @router.get(
-            "/list",
-            response_model = ListResponse
-        )
-        @handle_errors
+        @router.get("/list", response_model = list[FullContainer] | list[UserFullContainer])
         def fetch_container(
-            auth_context: Annotated[AuthContext, Depends(MANAGE_ANY)],
+            auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.container_read])],
             subdomain: str | None = None,
         ):
-            if not self._is_admin(auth_context):
-                if subdomain is None:
-                    raise ForbiddenError("you not permitted to view all containers")
-                self.containers.assert_owner(subdomain, auth_context.user_email)
-                
-                return self.containers.read(subdomain, auth_context.user_email)
+            if auth.user_role.requires_ownership:
+                return self.containers.read(subdomain, auth.user_email)
             
             return self.containers.read(subdomain)
             
@@ -93,21 +76,14 @@ class ContainerRouter:
             "/kick/{subdomain}",
             response_model = MessageResponse
         )
-        @handle_errors
         def kick_all_from_container(
+            auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.container_kick])],
             subdomain: str,
-            auth_context: Annotated[AuthContext, Depends(MANAGE_ANY)]
         ):
-            if not self._is_admin(auth_context):
-                 self.containers.assert_owner(subdomain, auth_context.user_email)
+            if auth.user_role.requires_ownership:
+                 self.containers.assert_owner(subdomain, auth.user_email)
                  
             return self.containers.kick(subdomain)
 
 
         return router
-
-
-    # =================================== HELPERS ===================================
-
-    def _is_admin(self, auth_context: AuthContext) -> bool:
-        return self.auth.roles.validate(Permission.container_manage_all, auth_context.user_role)

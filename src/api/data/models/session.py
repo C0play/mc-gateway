@@ -21,6 +21,7 @@ class LoginRequest(UserCredentials):
 
 
 class Session(BaseModel):
+    """Session model equivalent to it's DB record."""
     user_email: EmailStr = Field(..., description="User email address.")
     access_token: str = Field(..., description="Bearer token used to authenticate requests.")
     created_at: datetime = Field(..., description="Session creation date and time")
@@ -28,4 +29,5 @@ class Session(BaseModel):
 
 
 class SessionResponse(Session):
-    token_type: str = Field(..., description="Token type according to OAuth2.")
+    """Session response model for OAuth2."""
+    token_type: str = Field("bearer", description="Token type according to OAuth2.")
