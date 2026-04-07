@@ -4,20 +4,27 @@ from fastapi import APIRouter, Security
 from ..security import AuthContext, AuthorizationManager, Permission
 from ..data.models.user import User
 from ..data.user.repository import BaseUserRepository
+from ..security.roles import RoleRepository
 
 
 
 class UserRouter:
     """Defines API endpoints used for user management."""
 
-    def __init__(self, user_manager: BaseUserRepository, auth: AuthorizationManager) -> None:
+    def __init__(
+        self,
+        role_repo: RoleRepository,
+        user_manager: BaseUserRepository,
+        auth: AuthorizationManager
+    ) -> None:
+        self.roles = role_repo
         self.users = user_manager
         self.auth = auth
 
 
     def get_router(self) -> APIRouter:
 
-        router = APIRouter(prefix="/user", tags=["users"])
+        router = APIRouter(prefix="/users", tags=["users"])
 
         REQ = self.auth.require
 
@@ -33,16 +40,17 @@ class UserRouter:
         
 
         @router.put(
-            "/update/role", 
-            dependencies=[Security(REQ, scopes=[Permission.user_update])],
+            "/{email}/role",
+            dependencies=[Security(REQ, scopes=[Permission.user_update_role])],
             response_model=User
         )
-        def update_user_role(role: str, email: str):
+        def update_user_role(email: str, role: str):
+            self.roles.get(role) # will raise if role does not exist
             return self.users.update(email, role=role)
         
 
         @router.delete(
-            "/delete/{email}",
+            "/{email}",
             dependencies=[Security(REQ, scopes=[Permission.user_delete])],
             response_model=User
         )

@@ -85,7 +85,7 @@ class API:
 
         auth_router = AuthRouter(sessions, users, authentication).get_router()
         key_router = ApiKeyRouter(keys, authorization).get_router()
-        user_router = UserRouter(users, authorization).get_router()
+        user_router = UserRouter(roles, users, authorization).get_router()
         host_router = HostRouter(host_service, authorization).get_router()
         container_router = ContainerRouter(container_service, authorization).get_router()
         player_router = WhitelistRouter(player_service, authorization).get_router()

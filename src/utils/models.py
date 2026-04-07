@@ -19,7 +19,7 @@ def db_init(cfg: PostgresConfig):
         port=cfg.port,
     )
     __db__.connect()
-    __db__.create_tables([Host, User, SessionRecord, Container, Whitelist, ApiKeyRecord])
+    __db__.create_tables([Host, User, Session, Container, Whitelist, ApiKey])
 
 
 
@@ -38,7 +38,7 @@ class User(BaseModel):
 
 
 
-class ApiKeyRecord(BaseModel):
+class ApiKey(BaseModel):
     key_hash = peewee.CharField()
     name = peewee.CharField()
     active = peewee.BooleanField(default=True)
@@ -47,9 +47,13 @@ class ApiKeyRecord(BaseModel):
     revoked_at = peewee.DateTimeField(formats="%Y-%m-%d %H:%M:%S", null=True, default=None)
     user = peewee.ForeignKeyField(User, field="email", on_delete="CASCADE")
 
+    class Meta:
+        indexes = (
+            (('user', 'name'), True),
+        )
 
 
-class SessionRecord(BaseModel):
+class Session(BaseModel):
     id = peewee.UUIDField(unique=True, primary_key=True)
     created_at = peewee.DateTimeField(formats="%Y-%m-%d %H:%M:%S")
     valid_until = peewee.DateTimeField(formats="%Y-%m-%d %H:%M:%S")

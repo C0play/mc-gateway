@@ -18,15 +18,12 @@ class HostRouter:
 
     def get_router(self) -> APIRouter:
         
-        router = APIRouter(
-            prefix="/host",
-            tags=["hosts"]
-        )
+        router = APIRouter(prefix="/hosts", tags=["hosts"])
 
         REQ = self.auth.require
 
         @router.post(
-            "/add",
+            "/",
             dependencies=[Security(REQ, scopes=[Permission.host_create])],
             response_model=HostData
         )
@@ -34,8 +31,8 @@ class HostRouter:
             return self.hosts.add(host)
 
 
-        @router.put(
-            "/update/{ip}",
+        @router.patch(
+            "/{ip}",
             dependencies=[Security(REQ, scopes=[Permission.host_update])],
             response_model=FullHost
         )
@@ -44,7 +41,7 @@ class HostRouter:
 
 
         @router.delete(
-            "/remove/{ip}",
+            "/{ip}",
             dependencies=[Security(REQ, scopes=[Permission.host_delete])],
             response_model=FullHost
         )
@@ -53,7 +50,7 @@ class HostRouter:
 
 
         @router.post(
-            "/kick/{ip}",
+            "/{ip}/kick",
             dependencies=[Security(REQ, scopes=[Permission.host_kick])],
             response_model=MessageResponse
         )
@@ -62,7 +59,7 @@ class HostRouter:
 
 
         @router.get(
-            "/list",
+            "/",
             dependencies=[Security(REQ, scopes=[Permission.host_read])],
             response_model=list[FullHost]
         )

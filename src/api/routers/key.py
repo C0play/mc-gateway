@@ -1,12 +1,12 @@
 from typing import Annotated
 from datetime import datetime
 from fastapi import APIRouter, Security
+from pydantic import EmailStr
 
 from ..data.api_key.repository import BaseKeyRepository
-from ..data.models.response import MessageResponse
 from ..data.models.api_key import ApiKey
 from ..security import AuthContext, AuthorizationManager, Permission
-
+from ...exceptions import ForbiddenError
 
 
 class ApiKeyRouter:
@@ -19,35 +19,31 @@ class ApiKeyRouter:
 
     def get_router(self) -> APIRouter:
 
-        router = APIRouter(prefix="/apikey", tags=["api keys"])
+        router = APIRouter(prefix="/api-keys", tags=["api keys"])
 
         REQ = self.auth.require
 
-        @router.post("/create", response_model=MessageResponse)
+        @router.post("/", response_model=str)
         def create_api_key(
             auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.api_key_create])],
-            email: str | None,
-            name: str | None
+            email: EmailStr,
+            name: str,
         ):
-            if name is None:
-                name = "default" + str(datetime.now().microsecond)[:4]
-
-            if auth.user_role.requires_ownership:
-                return self.api_keys.create(auth.user_email, name)
+            if auth.user_role.requires_ownership and auth.user_email != email:
+                raise ForbiddenError()
             
-            if email is not None:
-                return self.api_keys.create(email, name)
-            else:
-                return self.api_keys.create(auth.user_email, name)
+            return self.api_keys.create(email, name)
 
 
-        @router.get("/list", response_model=list[ApiKey])
+        @router.get("/", response_model=list[ApiKey])
         def fetch_api_keys(
             auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.api_key_read])],
+            email: EmailStr | None = None,
             name: str | None = None,
-            email: str | None = None
         ):
             if auth.user_role.requires_ownership:
+                if email is not None and auth.user_email != email:
+                    raise ForbiddenError("You can view only your own keys.")
                 return self.api_keys.read(
                     user = auth.user_email,
                     name = name
@@ -56,28 +52,26 @@ class ApiKeyRouter:
             return self.api_keys.read(user=email, name=name)
         
 
-        @router.delete("/revoke/{name}", response_model=MessageResponse)
+        @router.delete("/revoke", response_model=ApiKey)
         def revoke_api_key(
             auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.api_key_revoke])],
+            email: EmailStr,
             name: str,
-            email: str | None,
         ):
-            if auth.user_role.requires_ownership:
-                return self.api_keys.update(auth.user_email, name, active=False)
-            
-            if email is not None:
-                return self.api_keys.update(email, name, active=False)
-            else:
-                return self.api_keys.update(auth.user_email, name, active=False)
+            if auth.user_role.requires_ownership and auth.user_email != email:
+                raise ForbiddenError("This key is not your's")
+
+            now = datetime.now()
+            return self.api_keys.update(email, name, active=False, revoked_at=now)
         
         
         @router.delete(
-            "/delete/{name}",
+            "/remove",
             dependencies=[Security(REQ, scopes=[Permission.api_key_delete])],
-            response_model=MessageResponse
+            response_model=ApiKey
         )
-        def delete_api_key(name: str, owner_email: str):
-            return self.api_keys.delete(owner_email, name)
+        def delete_api_key(email: EmailStr, name: str):
+            return self.api_keys.delete(email, name)
 
 
         return router

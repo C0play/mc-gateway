@@ -24,12 +24,12 @@ class ContainerRouter:
 
     def get_router(self) -> APIRouter:
 
-        router = APIRouter(prefix="/container", tags=["containers"])
+        router = APIRouter(prefix="/containers", tags=["containers"])
 
         REQ = self.auth.require
 
         @router.post(
-            "/add",
+            "/",
             dependencies = [Security(REQ, scopes=[Permission.container_create])],
             response_model = FullContainer
         )
@@ -38,7 +38,7 @@ class ContainerRouter:
 
 
         @router.delete(
-            "/remove/{subdomain}",
+            "/{subdomain}",
             dependencies = [Security(REQ, scopes=[Permission.container_delete])],
             response_model = FullContainer
         )
@@ -46,8 +46,8 @@ class ContainerRouter:
             return self.containers.remove(subdomain)
         
 
-        @router.put(
-            "/update/{subdomain}",
+        @router.patch(
+            "/{subdomain}",
             response_model = FullContainer | UserFullContainer
         )
         def update_container(
@@ -61,7 +61,7 @@ class ContainerRouter:
             return self.containers.update(subdomain, data)
 
 
-        @router.get("/list", response_model = list[FullContainer] | list[UserFullContainer])
+        @router.get("/", response_model = list[FullContainer] | list[UserFullContainer])
         def fetch_container(
             auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.container_read])],
             subdomain: str | None = None,
@@ -73,7 +73,7 @@ class ContainerRouter:
             
 
         @router.post(
-            "/kick/{subdomain}",
+            "/{subdomain}/kick",
             response_model = MessageResponse
         )
         def kick_all_from_container(

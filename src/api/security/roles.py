@@ -52,7 +52,7 @@ class Permission(StrEnum):
 
     # Users
     user_read           = auto(), "Read user data"
-    user_update         = auto(), "Update user data"
+    user_update_role         = auto(), "Update user data"
     user_delete         = auto(), "Delete a user"
 
     # Other

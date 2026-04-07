@@ -2,7 +2,7 @@ from typing import cast
 from datetime import datetime
 
 from ..models.api_key import ApiKey
-from ....utils.models import ApiKeyRecord as ApiKeyRecord
+from ....utils.models import ApiKey as ApiKeyRecord
 
 
 def apikey_from_record(record: ApiKeyRecord) -> ApiKey:

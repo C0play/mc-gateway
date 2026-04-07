@@ -8,7 +8,7 @@ __all__ = [
     "UserRouter"
 ]
 
-from .users import UserRouter
+from .user import UserRouter
 from .auth import AuthRouter
 from .container import ContainerRouter
 from .host import HostRouter

@@ -6,7 +6,7 @@ from peewee import IntegrityError
 from ..models.api_key import ApiKey
 from ..mappers.api_key import apikey_from_record
 
-from ....utils.models import ApiKeyRecord
+from ....utils.models import ApiKey as ApiKeyRecord
 from ....exceptions.errors import NotFoundError, ServiceError
 from ....security.hashing import sha256_hex
 from ....security.tokens import generate_token_urlsafe
@@ -164,5 +164,5 @@ class SQLKeyRepository(BaseKeyRepository):
     def _read_one(self, **filters) -> ApiKey:
         keys = self.read(**filters)
         if not keys or len(keys) > 1:
-            raise NotFoundError("API key does not exist")
+            raise NotFoundError("API key does not exist or multiple records match")
         return keys[0]

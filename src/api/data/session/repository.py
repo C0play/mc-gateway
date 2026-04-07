@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from peewee import IntegrityError
 
-from ....utils.models import SessionRecord
+from ....utils.models import Session as SessionRecord
 from ....exceptions.errors import NotFoundError, ConflictError, ServiceError
 
 

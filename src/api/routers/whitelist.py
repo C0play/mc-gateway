@@ -17,11 +17,11 @@ class WhitelistRouter:
 
     def get_router(self) -> APIRouter:
         
-        router = APIRouter(prefix="/whitelist", tags=["whitelists"])
+        router = APIRouter(prefix="/whitelists", tags=["whitelists"])
 
         REQ = self.auth.require
 
-        @router.post("/add", response_model=WhitelistEntry)
+        @router.post("/", response_model=WhitelistEntry)
         def create_whitelist_entry(
             auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.whitelist_create])],
             username: str,
@@ -33,7 +33,7 @@ class WhitelistRouter:
             return self.whitelists.add(username, subdomain)
 
 
-        @router.delete("/remove", response_model=WhitelistEntry)
+        @router.delete("/", response_model=WhitelistEntry)
         def remove_whitelist_entry(
             auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.whitelist_delete])],
             username: str,
@@ -45,7 +45,7 @@ class WhitelistRouter:
             return self.whitelists.remove(username, subdomain)
 
 
-        @router.post("/kick", response_model=MessageResponse)
+        @router.post("/{subdomain}/kick", response_model=MessageResponse)
         def kick_player_from_container(
             auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.whitelist_kick])],
             username: str,
@@ -57,7 +57,7 @@ class WhitelistRouter:
             return self.whitelists.kick(username, subdomain)
 
 
-        @router.get("/list/", response_model=list[WhitelistEntry])
+        @router.get("/", response_model=list[WhitelistEntry])
         def fetch_whitelist_entry(
             auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.whitelist_read])], 
             username: str | None = None,

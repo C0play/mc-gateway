@@ -1,7 +1,7 @@
 from typing import cast
 from datetime import datetime
 
-from ....utils.models import SessionRecord as SessionRecord
+from ....utils.models import Session as SessionRecord
 from ..models.session import Session
 
 
