@@ -40,7 +40,7 @@ class BaseContainerRepository(ABC):
         ...
 
     @abstractmethod
-    def read(self, **filters) -> list[Container]:
+    def read(self, allow_empty: bool, **filters) -> list[Container]:
         """
         Retrieves container records matching the given filters.
 
@@ -50,6 +50,9 @@ class BaseContainerRepository(ABC):
 
         Returns:
             list[Container]: Matching Container model instances.
+        
+        Raises:
+            NotFoundError: If allow_empty is False and no record is returned.
         """
         ...
     
@@ -113,14 +116,16 @@ class SQLContainerRepository(BaseContainerRepository):
             raise ServiceError(f"failed to create container {ip}:{mc_port}: {e}")
 
 
-    def read(self, **filters) -> list[Container]:
+    def read(self, allow_empty: bool, **filters) -> list[Container]:
         query = Container.select()
         for field, value in filters.items():
             if value is None:
                 continue
             query = query.where(getattr(Container, field) == value)
-        return list(query)
-    
+        res = list(query)
+        if not res and not allow_empty:
+            raise NotFoundError(f"container with {filters} does not exist")
+        return res
 
     def update(self, subdomain: str, **fields) -> Container:
         rows = (Container

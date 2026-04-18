@@ -15,6 +15,7 @@ from ..security.tokens import generate_token_urlsafe
 from ..exceptions.errors import NotFoundError, ServiceError
 
 
+
 class BaseContainerManager(ABC):
     """Manages the lifecycle and active state of containers."""
 
@@ -129,9 +130,7 @@ class ContainerManager(BaseContainerManager):
                 return self.active_containers[subdomain]
             
             try:
-                records = self.storage.read(subdomain=subdomain)
-                if not records:
-                    raise NotFoundError(f"container {subdomain} does not exist")
+                records = self.storage.read(allow_empty=False, subdomain=subdomain)
                 container_record = records[0]
             except NotFoundError:
                 raise
@@ -198,9 +197,7 @@ class ContainerManager(BaseContainerManager):
     
     def delete(self, subdomain: str) -> None:
 
-        records = self.storage.read(subdomain=subdomain)
-        if not records:
-            raise NotFoundError(f"container {subdomain} does not exist")
+        records = self.storage.read(allow_empty=False, ubdomain=subdomain)
         
         if not records[0].initialized:
             logger.info(f"Removing container {subdomain} from storage (not initialized)")
@@ -248,7 +245,7 @@ class ContainerManager(BaseContainerManager):
 
     
     def _cleanup_pending_deletions(self, host: BaseHost) -> None:
-        lst = self.storage.read(to_be_deleted=True, host=host.ip)
+        lst = self.storage.read(allow_empty=True, to_be_deleted=True, host=host.ip)
         if len(lst) == 0:
             return
 

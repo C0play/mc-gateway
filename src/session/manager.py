@@ -95,7 +95,11 @@ class SessionManager(BaseSessionManager):
             if client in self.sessions:
                 raise ConflictError(f"{client} already has a session")
         
-        if self.containers.storage.read(subdomain=subdomain, to_be_deleted=True):
+        if self.containers.storage.read(
+            allow_empty=True,
+            subdomain=subdomain,
+            to_be_deleted=True
+        ):
             raise ConflictError(f"container {subdomain} is marked for deletion")
         
         try:

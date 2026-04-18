@@ -39,9 +39,18 @@ class UserRouter:
             return self.users.read(email=email)
         
 
+        @router.get(
+            "/roles",
+            dependencies=[Security(REQ, scopes=[Permission.user_read])],
+            response_model=list[str]
+        )
+        def fetch_roles():
+            return [r.name for r in self.roles.get_all()]
+
+
         @router.put(
             "/{email}/role",
-            dependencies=[Security(REQ, scopes=[Permission.user_update_role])],
+            dependencies=[Security(REQ, scopes=[Permission.user_view_roles])],
             response_model=User
         )
         def update_user_role(email: str, role: str):

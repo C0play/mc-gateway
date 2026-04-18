@@ -21,7 +21,7 @@ from ..data.models.utils import merge_configs
 from ...utils.composegen import PERFORMANCE_MODS
 from ...utils.keygen import KeyGenerator
 
-from ...exceptions.errors import BadRequestError, NotFoundError, ForbiddenError
+from ...exceptions.errors import BadRequestError, NotFoundError
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -65,9 +65,7 @@ class ContainerService:
         if not KeyGenerator.validate(subdomain):
             raise BadRequestError("subdomain is not valid")
 
-        old_container_records = self.containers.storage.read(subdomain=subdomain)
-        if not old_container_records:
-            raise NotFoundError(f"container {subdomain} does not exist")
+        old_container_records = self.containers.storage.read(allow_empty=False, subdomain=subdomain)
         old_container = old_container_records[0]
 
         old_cfg = ContainerConfig.model_validate(old_container.config)
@@ -99,9 +97,7 @@ class ContainerService:
 
 
     def remove(self, subdomain: str) -> FullContainer:
-        records = self.containers.storage.read(subdomain=subdomain)
-        if not records:
-            raise NotFoundError(f"container {subdomain} does not exist")
+        records = self.containers.storage.read(allow_empty=False, subdomain=subdomain)
         deleted_container = records[0]
 
         self.server_sessions.interrupt(
@@ -117,23 +113,23 @@ class ContainerService:
         return MessageResponse(message=f"All players from server {subdomain} have been kicked")
 
 
-    def read(self, subdomain: str | None = None, owner_email: str | None = None) -> list[FullContainer] | list[UserFullContainer]:
+    def read(self, subdomain: str | None = None, email: str | None = None) -> list[FullContainer] | list[UserFullContainer]:
         query = self.containers.storage.read(
+            allow_empty=True,
             subdomain = subdomain,
-            owner=owner_email,
+            owner=email,
         )
-        if owner_email is not None:
+        if email is not None:
             return [user_full_container_from_record(row) for row in query]
         return [full_container_from_record(row) for row in query]
 
 
-    def assert_owner(self, subdomain: str, owner_email: str) -> None:
-        records = self.containers.storage.read(
+    def assert_owner(self, subdomain: str, email: str) -> None:
+        self.containers.storage.read(
+            allow_empty=False,
             subdomain=subdomain,
-            owner=owner_email,
+            owner=email,
         )
-        if not records:
-            raise ForbiddenError("you are not the owner")
         
 
     @staticmethod

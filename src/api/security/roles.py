@@ -52,7 +52,8 @@ class Permission(StrEnum):
 
     # Users
     user_read           = auto(), "Read user data"
-    user_update_role         = auto(), "Update user data"
+    user_update_role    = auto(), "Update user's role"
+    user_view_roles     = auto(), "Fetch all roles"
     user_delete         = auto(), "Delete a user"
 
     # Other
@@ -147,6 +148,10 @@ class RoleRepository:
         
         return self.roles[name]
     
+
+    def get_all(self) -> list[Role]:
+        return [role for role in self.roles.values()]
+
 
     def validate(self, requested_scope: str, role: Role) -> bool:
         try:

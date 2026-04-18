@@ -45,7 +45,7 @@ class WhitelistService:
     ) -> list[WhitelistEntry]:
 
         if email is not None:
-            records = self.containers.storage.read(owner=email)
+            records = self.containers.storage.read(allow_empty=True, owner=email)
             subdomains = [str(r.subdomain) for r in records]
         else:
             subdomains = [subdomain]
@@ -72,11 +72,9 @@ class WhitelistService:
         )
     
 
-    def assert_owner(self, subdomain: str, owner_email: str) -> None:
-        records = self.server_sessions.containers.storage.read(
+    def assert_owner(self, subdomain: str, email: str) -> None:
+        self.containers.storage.read(
+            allow_empty=False,
             subdomain=subdomain,
-            owner=owner_email,
+            owner=email,
         )
-        if not records:
-            raise ForbiddenError("you are not the owner")
-    

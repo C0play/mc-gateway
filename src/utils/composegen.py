@@ -5,7 +5,7 @@ from ..host.repository import BaseHostRepository
 from ..container.repository import BaseContainerRepository
 from ..api.data.models.host import HostConfig
 from ..api.data.models.container import ContainerConfig
-
+from ..exceptions import NotFoundError
 
 
 # Default optimization mods for Fabric 1.21.8
@@ -34,9 +34,10 @@ class ComposeGenerator:
 
         Raises:
             ValueError: If an argument fails validation.
+            NorFoundError: If the container doesn't exist.
         """
 
-        container_record = self.containers.read(subdomain=subdomain)[0]
+        container_record = self.containers.read(allow_empty=False, subdomain=subdomain)[0]
         host_record = self.hosts.read(ip=container_record.host)[0]
 
         compose_cfg = ContainerConfig.model_validate(container_record.config)
