@@ -1,35 +1,38 @@
-import socket
+import logging
 import select
 import signal
-import uvicorn
-import logging
+import socket
 import threading
-from subprocess import CalledProcessError 
 
-from ..utils.logger import logger
-from ..packet.packet import Packet, Null, Status, Login
+import uvicorn
+
+from ..api.api import API
+from ..config.config import Config
 from ..exceptions.errors import (
     BadRequestError,
     ConflictError,
     NotFoundError,
     ServiceError,
 )
-
-from ..config.config import Config
-from ..whitelist.manager import WhitelistManager
+from ..protocol.factory import ProtocolFactory
+from ..protocol.types import Intent
 from ..session.manager import SessionManager
-
-from .client import Client, State
-from ..api.api import API
-
+from ..utils.logger import logger
+from ..whitelist.manager import WhitelistManager
+from .client import Client
 
 
 class Server:
     """
     The main server class that handles Minecraft client connections and control commands.
     """
-    
-    def __init__(self, config: Config, whitelist: WhitelistManager, sessions: SessionManager) -> None:
+
+    def __init__(
+        self,
+        config: Config,
+        whitelist: WhitelistManager,
+        sessions: SessionManager,
+    ) -> None:
         """
         Initializes the Server with configuration, whitelist, and session managers.
         Sets up the Minecraft server socket and the control socket.
@@ -38,36 +41,31 @@ class Server:
             config: The configuration object.
             whitelist: The whitelist manager.
             sessions: The session manager.
-        
+
         Raises:
             ServiceError: If socket binding or initialization fails.
         """
-        try:
-            self._shutdown = False
-            
-            self.config = config
-            self._whitelist = whitelist
-            self._sessions = sessions
-            
-            self._client_count_lock = threading.Lock()
-            self._client_count = 0
-            
-            signal.signal(signal.SIGTERM, self._signal_handler)
-            signal.signal(signal.SIGINT, self._signal_handler)
+        self._shutdown = False
 
-            try:
-                self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                self._server_socket.bind((self.config.server.ip, self.config.server.port))
-                self._server_socket.listen(self.config.server.max_clients)
-            except Exception as e:
-                raise ServiceError(f"Minecraft socket: {e}")
-            
-            logger.info(f"server listening on {self.config.server.ip}:[mc:{self.config.server.port}, api:{self.config.server.control_port}]")
-        
-        except Exception as e:
-            raise ServiceError(f"Exception during server init: {e}")
-    
+        self.config = config
+        self._whitelist = whitelist
+        self._sessions = sessions
+        self._protocols = ProtocolFactory()
+
+
+        self._client_count_lock = threading.Lock()
+        self._client_count = 0
+
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        signal.signal(signal.SIGINT, self._signal_handler)
+
+        self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._server_socket.bind((self.config.server.ip, self.config.server.port))
+        self._server_socket.listen(self.config.server.max_clients)
+
+        logger.info(f"SERVER: listening on {self.config.server.ip}:[mc:{self.config.server.port}, api:{self.config.server.control_port}]")
+
 
     def start(self) -> None:
         """
@@ -80,19 +78,16 @@ class Server:
 
             while not self._shutdown:
                 sockets = [self._server_socket]
-                readyl, _, _ = select.select(sockets, [], [], 1.0) 
+                readyl, _, _ = select.select(sockets, [], [], 1.0)
 
                 if self._server_socket in readyl and not self._shutdown:
                     self._handle_mc_socket()
 
         except Exception as e:
-            logger.critical(f"server: {e}")
+            logger.critical(f"SERVER: unexpected error {e}")
         finally:
-            logger.info(f"cleaning resources")
-            try:
-                self._server_socket.close()
-            except Exception as e:
-                logger.error(f"closing mc_socket: {e}")
+            logger.info("cleaning resources")
+            self._server_socket.close()
             logger.info("Server stopped")
 
 
@@ -103,13 +98,13 @@ class Server:
         for log_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
             log = logging.getLogger(log_name)
             log.disabled = True
-        
+
         uvicorn.run(
             API(self).app,
             host=self.config.server.ip,
             port=self.config.server.control_port,
             log_config=None,
-            access_log=False 
+            access_log=False
         )
 
 
@@ -117,157 +112,112 @@ class Server:
         """Accepts a connection on the Minecraft socket, creates a Client instance and
         starts a thread to handle the connection.
         """
-
-        client_sock, addr = self._server_socket.accept()
-        client = Client(client_sock, addr)
-
         with self._client_count_lock:
             self._client_count += 1
-            logger.info(f"new {client}, total: {self._client_count}")
 
+        client = None
         try:
-            threading.Thread(target=self._handle_client, daemon=True, args=(client,)).start()
-        except Exception as e:
-            logger.error(f"client handling: {e}")
+            client_sock, addr = self._server_socket.accept()
 
+            protocol = self._protocols.get(client_sock)
+            client = Client(client_sock, addr, protocol)
 
-    def _handle_client(self, client: Client) -> None:
-        try:
-            handshake = Packet(client).read()
-            self._process_handshake(client, handshake)
-            
-            if handshake.data[1] is Null.serverbound.handshake and handshake.data[5] == State.Status:
-                self._proces_status_req(client)
-            elif handshake.data[1] is Null.serverbound.handshake and handshake.data[5] == State.Login:
-                self._handle_login(client, handshake)
-            else:
-                raise BadRequestError("unsupported handshake state")
-            
-        except (NotImplementedError, ConnectionError) as e:
+            threading.Thread(target=self._process_handshake, daemon=True, args=(client,)).start()
+        except (BadRequestError, NotImplementedError) as e:
+            logger.info(f"{client}: {e}")
+        except (ConnectionError, ConnectionResetError, BrokenPipeError, OSError) as e:
             logger.warning(f"{client}: {e}")
         except Exception as e:
-            logger.error(f"{client}: {e}")
+            logger.error(f"{client}: unexpected error {e}")
         finally:
-            client.close()
+            if client is not None:
+                client.close()
             with self._client_count_lock:
                 self._client_count -= 1
-            
 
-    def _process_handshake(self, client: Client, handshake: Packet):
-        try:
-            subdomain, domain = handshake.data[3].split('.', 1)
-            
-            if not (self._whitelist.validate(subdomain=subdomain) and self.config.server.domain == domain):
-                logger.info(f"{client} invalid domain: " + subdomain + "." + domain)
-                return
-            
-            if len(handshake.data) < 2 or handshake.data[1] is not Null.serverbound.handshake:
-                return
-            
-            client.subdomain = subdomain
-            logger.info(f"{client} {handshake.data}")
-                    
-        except NotImplementedError as e:
-            logger.warning(f"{client} {e}")
-            return
-        except (ConnectionResetError, BrokenPipeError, OSError) as e:
-            logger.warning(f"{client} disconnected during handshake")
-            return
-        except Exception as e:
-            raise ServiceError(f"handshake: {e}")
+
+    def _process_handshake(self, client: Client) -> None:
+        subdomain, domain = client.packets.handshake.data.address.split('.', 1)
+
+        if not (self._whitelist.validate(subdomain=subdomain) and self.config.server.domain == domain):
+            raise BadRequestError("invalid domain: " + subdomain + "." + domain)
+
+        client.subdomain = subdomain
+        logger.info(f"{client} {client.packets.handshake.data}")
+
+        if client.packets.handshake.data.intent == Intent.Status:
+            self._proces_status_req(client)
+        elif client.packets.handshake.data.intent == Intent.Login:
+            self._handle_login(client)
+        else:
+            raise BadRequestError(f"unsupported handshake intent: {client.packets.handshake.data.intent}")
 
 
     def _proces_status_req(self, client):
+        client.proto.status.read()
+        logger.info(f"{client} {client.proto.status.data}")
+        client.proto.status.respond()
+
+        client.proto.ping.read()
+        logger.info(f"{client} {client.proto.ping.data}")
+        client.proto.ping.respond()
+
+
+    def _handle_login(self, client: Client):
+        client.packets.login.read()
+        client.username = client.packets.login.data.name
+
+        logger.info(f"{client}: {client.packets.login.data}")
+
+        if not self._whitelist.validate(
+            username = client.packets.login.data.name,
+            subdomain = client.subdomain
+        ):
+            client.packets.login.respond("You are not whitelisted.", "red")
+            raise BadRequestError("unknown player")
+
+        self._handle_session(client)
+
+
+    def _handle_session(self, client: Client) -> None:
+
         try:
-            status_req = Packet(client).read()
-            
-            logger.info(f"{client} {status_req.data}")
-                
-            if status_req.data[1] is Status.serverbound.status_request:
-                status_req.respond()
-
-                ping_req = Packet(client).read()
-                logger.info(f"{client} {ping_req.data}")
-
-                if ping_req.data[1] is Status.serverbound.ping_request:
-                    ping_req.respond()
-
-            
-        except (ConnectionError, ConnectionResetError, BrokenPipeError, OSError) as e:
-            logger.warning(f"{client} disconnected during status")
-        except NotImplementedError as e:
-            logger.warning(f"{client} {e}")
-        except Exception as e:
-            raise ServiceError(f"status: {e}")
-
-
-    def _handle_login(self, client: Client, handshake: Packet):
-        try:
-            subdomain, domain = handshake.data[3].split('.', 1)
-
-            login_start = Packet(client).read()
-
-            logger.info(f"{client} {login_start.data}")
-
-            if login_start.data[1] is Login.serverbound.login_start:
-                username = login_start.data[2]
-
-                if not self._whitelist.validate(username = username, subdomain = subdomain):
-                    logger.warning(f"{client} unknown player tried logging in: {(username, subdomain)}")
-                    login_start.respond("You are not whitelisted.", "red")
-                    return
-                
-                client.username = username
-                self._handle_session(client, subdomain, handshake, login_start)
-
-
-        except NotImplementedError as e:
-            logger.warning(f"{client} {e}")
-        except (CalledProcessError) as e:
-            logger.error(f"{client} subprocess command failed {e}")
-        except (ConnectionError, ConnectionResetError, BrokenPipeError) as e:
-            logger.warning(f"{client} disconnected during login")
-        except Exception as e:
-            raise ServiceError(f"{client} login: {e}")
-
-
-    def _handle_session(self, client: Client, subdomain: str, handshake: Packet, login_start: Packet) -> None:
-        
-        try:
-            session = self._sessions.open(client, subdomain)
+            session = self._sessions.open(client)
         except (ConflictError, NotFoundError) as e:
-            logger.info(f"{client} denied connection: {e}")
-            login_start.respond("Your server was deleted.", "red")
+            logger.info(f"{client}: refused to create session: {e}")
+            client.packets.login.respond("Can't connect to server.", "red")
             return
-        except Exception as e:
-            logger.exception(f"failed to create session for {client}: {e}")
+        except ValueError as e:
+            logger.info(f"{client}: refused to create session: {e}")
             return
-        
+        except ServiceError as e:
+            logger.exception(f"{client}: failed to create session: {e}")
+            return
+
         try:
             if session.container.is_online():
                 logger.info(f"{client} container online, forwarding...")
-                
                 try:
-                    session.forward(handshake, login_start)
-                except:
-                    login_start.respond("Can't connect to server.", "red")
-                    logger.exception(f"{client} container connection failed (server starting?)")
-            
+                    session.forward(client.packets.handshake, client.packets.login)
+                except ConnectionAbortedError as e:
+                    logger.info(f"{client}: disconnected before forwarding: {e}")
+                except (ConnectionError, ValueError, ServiceError) as e:
+                    logger.error(f"{client}: container connection failed {e}")
+                    client.packets.login.respond("Can't connect to server.", "red")
+
             elif session.container.is_starting():
-                login_start.respond("Server is starting, please wait.", "green")
-                logger.info(f"{client} container start already in progress")
+                client.packets.login.respond("Server is starting, please wait.", "green")
+                logger.info(f"{client}: container starting")
                 return
-            
+
             else:
-                login_start.respond("Server is offline, starting.", "aqua")
-                logger.info(f"{client} container offline, starting...")
-                
+                client.packets.login.respond("Server is offline, starting.", "aqua")
+                logger.info(f"{client}: container offline, starting...")
+
                 if session.container.start():
-                    logger.info(f"{client} container online")
+                    logger.info(f"{client}: container online")
                 else:
-                    logger.error(f"{client} container start failed")
-        except:
-            logger.exception(f"failed to handle valid {client}")
+                    logger.error(f"{client}: container start failed")
         finally:
             self._sessions.close(client)
 

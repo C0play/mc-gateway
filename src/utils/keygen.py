@@ -54,7 +54,7 @@ class KeyGenerator:
         """
         
         if not KeyGenerator._initialized:
-            raise RuntimeError(f"KeyGenerator is not initialized")
+            raise RuntimeError("KeyGenerator is not initialized")
         
         while True:
             new = ''.join(secrets.choice(self.ALPHABET) for _ in range(self.length))

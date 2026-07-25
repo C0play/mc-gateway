@@ -1,12 +1,13 @@
-import time
-import threading
 import subprocess
+import threading
+import time
 from abc import ABC, abstractmethod
-from typing import Callable, cast
+from collections.abc import Callable
+from typing import cast
 
+from ..exceptions.errors import ServiceError
 from ..host.host import BaseHost, SSHHost
 from ..utils.logger import logger
-from ..exceptions.errors import ServiceError
 
 
 class BaseContainer(ABC):
@@ -143,7 +144,7 @@ class SSHContainer(BaseContainer):
             
             return res.returncode == 0 and res.stdout.strip().lower() == "true"
 
-        except subprocess.TimeoutExpired as e:
+        except subprocess.TimeoutExpired:
             return False
         except subprocess.CalledProcessError as e:
             raise ServiceError(f"docker inspect failed for {self.subdomain}: {e}")

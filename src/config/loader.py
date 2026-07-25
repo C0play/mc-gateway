@@ -1,13 +1,8 @@
 import os
-from ..utils.models import db_init
-from .config import  (
-    ServerConfig,
-    ShutdownConfig,
-    Config,
-    PostgresConfig,
-    StorageConfig
-)
+
 from ..exceptions.errors import ConfigError
+from ..utils.models import db_init
+from .config import Config, PostgresConfig, ServerConfig, ShutdownConfig, StorageConfig
 
 
 def _load_storage() -> StorageConfig:
@@ -16,7 +11,7 @@ def _load_storage() -> StorageConfig:
 
     Returns:
         StorageConfig: The loaded storage configuration.
-    
+
     Raises:
         ConfigException: If any required environment variable is missing.
     """
@@ -27,7 +22,7 @@ def _load_storage() -> StorageConfig:
     postgres_host = os.getenv("PG_HOST")
     postgres_port = os.getenv("PG_PORT")
     rcon_key = os.getenv("RCON_KEY")
-    if (postgres_name and postgres_user and postgres_password 
+    if (postgres_name and postgres_user and postgres_password
         and postgres_host and postgres_port and rcon_key):
         postgres = PostgresConfig(
             postgres_name,
@@ -52,7 +47,7 @@ def load_config() -> Config:
     Raises:
         ConfigException: If required environment variables are missing.
     """
-    
+
     ip = os.getenv("SERVER_IP")
     port = os.getenv("SERVER_PORT")
     control_port = os.getenv("CTRL_PORT")
@@ -60,7 +55,7 @@ def load_config() -> Config:
     domain = os.getenv("DOMAIN")
     if not (ip and port and control_port and max_clients and domain):
         raise ConfigError(f"At least one variable is None in ServerConfig")
-    
+
     server = ServerConfig(
         ip,
         int(port),

@@ -45,7 +45,8 @@ class BaseContainerRepository(ABC):
         Retrieves container records matching the given filters.
 
         Args:
-            **filters: Field names and values to filter by (e.g. subdomain="abc",
+            allow_empty: Whether to return empty list or throw an exception on empty results. 
+            **filters: Field names and values to filter by (e.g. subdomain="abc", 
                        to_be_deleted=True, host="1.2.3.4").
 
         Returns:

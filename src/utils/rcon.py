@@ -1,17 +1,15 @@
-import socket
 import random
+import socket
 
 
 class RCON:
     """
-    Provides methods to send RCON commands to Minecraft servers\n
+    Provides methods to send RCON commands to Minecraft servers
     **Example**:
-        
+
         with RCON(192.168.0.1, 25575, "password") as rcon:
             rcon.login()
             rcon.send("/seed")
-        
-            
     """
 
     def __init__(self, host: str, port: int, password: str) -> None:
@@ -33,10 +31,9 @@ class RCON:
     def __enter__(self):
         self._connect()
         return self
-    
+
     def __exit__(self, exc_type, exc, tb):
         self._disconnect()
-        pass
 
 
     def login(self) -> bool:
@@ -44,7 +41,7 @@ class RCON:
         packet_id = random.randint(0, 2**31 - 1)
         self.socket.sendall(RCON._encode_packet(packet_id, 3, self.password))
         return self._receive_response(login_id=packet_id) == "Auth successful"
-    
+
 
     def send(self, command: str) -> str:
         """
@@ -58,11 +55,11 @@ class RCON:
         packet_id = random.randint(0, 2**31 - 1)
         self.socket.sendall(RCON._encode_packet(packet_id, 2, command))
         # second packet with invalid type, to determine when fragmented
-        # response packet ends 
+        # response packet ends
         term_id = random.randint(0, 2**31 - 1)
         self.socket.sendall(RCON._encode_packet(term_id, 100, ""))
         return self._receive_response()
-    
+
 
     def _receive_response(self, login_id: int | None = None) -> str:
         resp = ""
@@ -89,8 +86,8 @@ class RCON:
     def _connect(self) -> None:
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.connect((self.host, self.port))
-    
-    
+
+
     def _disconnect(self) -> None:
         self.socket.close()
 
@@ -104,13 +101,13 @@ class RCON:
         body.extend(int.to_bytes(id, length=4, byteorder="little", signed=True))
         body.extend(int.to_bytes(type, length=4, byteorder="little", signed=True))
         body.extend(payload_bytes)
-        body.extend(b"\x00\x00") # one for 
-        
+        body.extend(b"\x00\x00") # one for
+
         data = bytearray()
         data.extend(int.to_bytes(len(body), length=4, byteorder="little", signed=True))
         data.extend(body)
         return data
-    
+
 
     @staticmethod
     def _decode_packet(data: bytes) -> tuple[int, int, int, str]:

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class PostgresConfig():
+class PostgresConfig:
     """Configuration for PostgreSQL database connection."""
     name: str
     user: str
@@ -12,14 +12,14 @@ class PostgresConfig():
 
 
 @dataclass(frozen=True)
-class StorageConfig():
+class StorageConfig:
     """Wrapper for storage-related configurations."""
     storage: PostgresConfig
     rcon_key: str
 
 
 @dataclass(frozen=True)
-class ServerConfig():
+class ServerConfig:
     """Configuration for the proxy server and control socket."""
     ip: str
     port: int
@@ -29,13 +29,13 @@ class ServerConfig():
 
 
 @dataclass(frozen=True)
-class ShutdownConfig():
+class ShutdownConfig:
     """Configuration for automatic shutdown behavior."""
     container_idle_timeout: int
 
 
 @dataclass(frozen=True)
-class Config():
+class Config:
     """Main configuration aggregation class."""
     server: ServerConfig
     shutdown: ShutdownConfig
