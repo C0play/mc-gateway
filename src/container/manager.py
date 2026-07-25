@@ -2,18 +2,17 @@ import threading
 from abc import ABC, abstractmethod
 from typing import cast
 
-from .repository import BaseContainerRepository
-from .container import BaseContainer, SSHContainer
 from ..api.data.models.container import ContainerConfig
-from ..host.manager import BaseHostManager
+from ..exceptions.errors import NotFoundError, ServiceError
 from ..host.host import BaseHost, SSHHost
-from ..utils.composegen import ComposeGenerator
-from ..utils.models import Container as ContainerRecord
-from ..utils.logger import logger
+from ..host.manager import BaseHostManager
 from ..security.crypto import Crypto
 from ..security.tokens import generate_token_urlsafe
-from ..exceptions.errors import NotFoundError, ServiceError
-
+from ..utils.composegen import ComposeGenerator
+from ..utils.logger import logger
+from ..utils.models import Container as ContainerRecord
+from .container import BaseContainer, SSHContainer
+from .repository import BaseContainerRepository
 
 
 class BaseContainerManager(ABC):
@@ -109,15 +108,15 @@ class ContainerManager(BaseContainerManager):
         self.lock = threading.Lock()
         self.active_containers: dict[str, SSHContainer] = {}
 
-    
+
     def create(self, ip: str, mc_port: int, rcon_port: int, config: ContainerConfig) -> ContainerRecord:
-        
+
         raw_password = generate_token_urlsafe(24)
         encrypted_password = Crypto.encrypt(raw_password)
-        
+
         config_payload = config.model_dump(mode="json")
         record = self.storage.create(ip, mc_port, rcon_port, encrypted_password, config_payload)
-        
+
         logger.info(f"Container {record.subdomain} registered on {ip}:{mc_port}.")
         return record
 
@@ -128,7 +127,7 @@ class ContainerManager(BaseContainerManager):
 
             if subdomain in self.active_containers:
                 return self.active_containers[subdomain]
-            
+
             try:
                 records = self.storage.read(allow_empty=False, subdomain=subdomain)
                 container_record = records[0]
@@ -141,7 +140,7 @@ class ContainerManager(BaseContainerManager):
             ip = cast(str, container_record.host.ip)
             mc_port = cast(int, container_record.mc_port)
             rcon_port = cast(int, container_record.rcon_port)
-            
+
             encrypted_pwd = cast(str, container_record.rcon_password)
             rcon_password = Crypto.decrypt(encrypted_pwd)
 
@@ -183,22 +182,22 @@ class ContainerManager(BaseContainerManager):
         with self.lock:
             if subdomain not in self.active_containers:
                 return
-            
+
             self.active_containers[subdomain].stop()
             del self.active_containers[subdomain]
-            
-            inactive_hosts: set[str] = set([h["ip"] for h in self.hosts.list()])
+
+            inactive_hosts: set[str] = {h["ip"] for h in self.hosts.list()}
             for container in self.active_containers.values():
                 inactive_hosts.discard(container.host.ip)
-            
+
             for host_ip in inactive_hosts:
                 self.hosts.unload(host_ip)
-            
-    
+
+
     def delete(self, subdomain: str) -> None:
 
         records = self.storage.read(allow_empty=False, ubdomain=subdomain)
-        
+
         if not records[0].initialized:
             logger.info(f"Removing container {subdomain} from storage (not initialized)")
             self.storage.delete(subdomain)
@@ -214,10 +213,10 @@ class ContainerManager(BaseContainerManager):
                 raise ServiceError(f"failed to set {subdomain} to be deleted: {e}")
             self.unload(subdomain)
             return
-        
+
         self._delete_from_online_host(subdomain, container)
 
-    
+
     def _delete_from_online_host(self, subdomain: str, container: SSHContainer) -> None:
         """Stops a running container, then removes its files and storage record."""
         try:
@@ -243,7 +242,7 @@ class ContainerManager(BaseContainerManager):
         except Exception as e:
             raise ServiceError(f"failed to remove {subdomain} from storage: {e}")
 
-    
+
     def _cleanup_pending_deletions(self, host: BaseHost) -> None:
         lst = self.storage.read(allow_empty=True, to_be_deleted=True, host=host.ip)
         if len(lst) == 0:

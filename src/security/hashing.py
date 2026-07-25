@@ -1,6 +1,5 @@
 import hashlib
 
-
 SCRYPT_N = 16384
 SCRYPT_R = 8
 SCRYPT_P = 1

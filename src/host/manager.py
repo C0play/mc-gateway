@@ -1,18 +1,17 @@
-import threading 
+import threading
 from abc import ABC, abstractmethod
 from typing import cast
 
-from .host import BaseHost, SSHHost
 from ..api.data.models.host import HostConfig
 from ..exceptions.errors import NotFoundError, ServiceError
-from .repository import BaseHostRepository
 from ..utils.logger import logger
-
+from .host import BaseHost, SSHHost
+from .repository import BaseHostRepository
 
 
 class BaseHostManager(ABC):
     """A class for managing active hosts"""
-    
+
     def __init__(self, host_repo: BaseHostRepository) -> None:
         self.storage = host_repo
 
@@ -50,7 +49,7 @@ class BaseHostManager(ABC):
 
         Args:
             ip: The IP address of the host to delete.
-        
+
         Raises:
             NotFoundError: If the host to delete is not found in storage.
         """
@@ -64,17 +63,17 @@ class BaseHostManager(ABC):
             list[dict[str, str]]: A mapping of IP addresses to host details.
         """
         ...
-    
-    
+
+
 
 class SSHHostManager(BaseHostManager):
     """
     Manages active SSHHost instances.
     """
-    
+
     def __init__(self, host_repo: BaseHostRepository) -> None:
         super().__init__(host_repo)
-        
+
         self.lock = threading.Lock()
         self.active_hosts: dict[str, SSHHost] = {}
 
@@ -83,7 +82,7 @@ class SSHHostManager(BaseHostManager):
         with self.lock:
             if ip in self.active_hosts:
                 return self.active_hosts[ip]
-            
+
             try:
                 record = self.storage.read(ip=ip)
                 if not record:
@@ -103,19 +102,19 @@ class SSHHostManager(BaseHostManager):
 
 
     def unload(self, ip: str) -> None:
-        
+
         logger.debug(f"Removing host {ip} from active list")
         with self.lock:
             if ip in self.active_hosts:
                 del self.active_hosts[ip]
-    
-    
+
+
     def delete(self, ip: str) -> None:
-        
+
         self.unload(ip)
         logger.debug(f"Removing host {ip} from storage")
         self.storage.delete(ip)
-            
+
 
 
     def list(self) -> list[dict[str, str]]:

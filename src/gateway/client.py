@@ -1,7 +1,6 @@
 import socket
 
 from ..protocol.protocol import BaseProtocol
-from ..utils.logger import logger
 
 
 class Client:

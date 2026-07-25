@@ -34,7 +34,7 @@ def _load_storage() -> StorageConfig:
         db_init(postgres)
         return StorageConfig(postgres, rcon_key)
 
-    raise ConfigError(f"failed to load storage configuration")
+    raise ConfigError("failed to load storage configuration")
 
 
 def load_config() -> Config:
@@ -54,7 +54,7 @@ def load_config() -> Config:
     max_clients = os.getenv("CLIENTS")
     domain = os.getenv("DOMAIN")
     if not (ip and port and control_port and max_clients and domain):
-        raise ConfigError(f"At least one variable is None in ServerConfig")
+        raise ConfigError("At least one variable is None in ServerConfig")
 
     server = ServerConfig(
         ip,
@@ -66,7 +66,7 @@ def load_config() -> Config:
 
     container_idle_timeout = os.getenv("CONT_IDLE_SEC")
     if not(container_idle_timeout):
-        raise ConfigError(f"At least one variable is None in ShutdownConfig")
+        raise ConfigError("At least one variable is None in ShutdownConfig")
 
     shutdown = ShutdownConfig(
         int(container_idle_timeout),

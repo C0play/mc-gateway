@@ -1,16 +1,15 @@
 from abc import ABC, abstractmethod
+
 import peewee as pewe
-from peewee import fn
 
+from ..exceptions.errors import ConflictError, NotFoundError, ServiceError
 from ..utils.logger import logger
-from ..utils.models import Whitelist, Container
-from ..exceptions.errors import NotFoundError, ConflictError, ServiceError
-
+from ..utils.models import Container, Whitelist
 
 
 class BaseWhitelistRepository(ABC):
     """A base class for managing whitelist parameters stored in persistent storage"""
-    
+
     @abstractmethod
     def create(self, username: str, subdomain: str) -> Whitelist:
         """
@@ -28,7 +27,7 @@ class BaseWhitelistRepository(ABC):
             ConflictError: If the player is already whitelisted.
         """
         ...
-    
+
     @abstractmethod
     def read(self, **filters) -> list[Whitelist]:
         """
@@ -41,7 +40,7 @@ class BaseWhitelistRepository(ABC):
             list[Whitelist]: Matching Whitelist model instances.
         """
         ...
-    
+
     @abstractmethod
     def exists(self, fields: dict[str, str]) -> bool:
         """
@@ -89,7 +88,7 @@ class SQLWhitelistRepository(BaseWhitelistRepository):
         except Exception as e:
             raise ServiceError(f"failed to add player {username} to {subdomain}: {e}")
 
-    
+
     def read(self, **filters) -> list[Whitelist]:
         query = Whitelist.select()
         for field, value in filters.items():
@@ -107,7 +106,7 @@ class SQLWhitelistRepository(BaseWhitelistRepository):
         for key, value in fields.items():
             if key == "subdomain":
                 key = "container"
-                
+
             if hasattr(Whitelist, key) :
                 expressions.append(getattr(Whitelist, key) == value)
             else:
@@ -122,12 +121,12 @@ class SQLWhitelistRepository(BaseWhitelistRepository):
 
 
     def delete(self, username: str, subdomain: str) -> None:
-        
+
         query = (Whitelist
                     .delete()
                     .where((Whitelist.username == username) & (Whitelist.container == subdomain))
                 )
         rows_deleted = query.execute()
-        
+
         if rows_deleted == 0:
             raise NotFoundError(f"player {username} does not exist or is not whitelisted on {subdomain}")
