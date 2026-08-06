@@ -6,7 +6,6 @@ Sets up console output with specific formatting and handles log levels via envir
 import logging
 import os
 
-
 lvl = None
 match os.getenv("LOG_LEVEL"):
     case "DEBUG":
@@ -14,7 +13,7 @@ match os.getenv("LOG_LEVEL"):
     case "INFO":
         lvl = logging.INFO
     case "WARN":
-        lvl = logging.WARN
+        lvl = logging.WARNING
     case "ERROR":
         lvl = logging.ERROR
     case "CRIT":

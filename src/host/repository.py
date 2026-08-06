@@ -1,13 +1,14 @@
 from abc import ABC, abstractmethod
+
 from peewee import IntegrityError
 
+from ..exceptions.errors import ConflictError, NotFoundError, ServiceError
 from ..utils.models import Host
-from ..exceptions.errors import NotFoundError, ConflictError, ServiceError
 
 
 class BaseHostRepository(ABC):
     """A base class for managing host parameters stored in persistent storage"""
-    
+
     @abstractmethod
     def create(self, ip: str, mac: str, config: dict) -> Host:
         """
@@ -26,7 +27,7 @@ class BaseHostRepository(ABC):
             ServiceError: If an unexpected error occurs.
         """
         ...
-    
+
     @abstractmethod
     def read(self, **filters) -> list[Host]:
         """
@@ -39,7 +40,7 @@ class BaseHostRepository(ABC):
             list[Host]: Matching Host model instances.
         """
         ...
-    
+
     @abstractmethod
     def update(self, ip: str, **fields) -> Host:
         """
@@ -76,7 +77,7 @@ class SQLHostRepository(BaseHostRepository):
     """
     Implementation of host storage using Peewee ORM.
     """
-    
+
     def create(self, ip: str, mac: str, config: dict) -> Host:
         try:
             return Host.create(ip=ip, mac=mac, config=config)

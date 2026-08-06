@@ -1,12 +1,11 @@
-import yaml
 from typing import Any
 
-from ..host.repository import BaseHostRepository
-from ..container.repository import BaseContainerRepository
-from ..api.data.models.host import HostConfig
-from ..api.data.models.container import ContainerConfig
-from ..exceptions import NotFoundError
+import yaml
 
+from ..api.data.models.container import ContainerConfig
+from ..api.data.models.host import HostConfig
+from ..container.repository import BaseContainerRepository
+from ..host.repository import BaseHostRepository
 
 # Default optimization mods for Fabric 1.21.8
 PERFORMANCE_MODS = [
@@ -47,14 +46,14 @@ class ComposeGenerator:
         container_ram_val = ComposeGenerator.to_Mb(compose_cfg.ram)
         init_ram_val = ComposeGenerator.to_Mb(host_cfg.init_memory)
         max_ram_val = ComposeGenerator.to_Mb(host_cfg.max_memory)
-        if not (init_ram_val <= container_ram_val and container_ram_val <= max_ram_val):
-            raise ValueError(f"container memory is not within [init_memory, max_memory] range.")
+        if not (init_ram_val <= container_ram_val <= max_ram_val):
+            raise ValueError("container memory is not within [init_memory, max_memory] range.")
 
         final_mods = compose_cfg.modrinth_projects.copy()
         for pm in PERFORMANCE_MODS:
             if pm not in final_mods:
                 final_mods.append(pm)
-        
+
         custom_server_properties = ["LOG_IPS=true"]
 
         environment = {
@@ -65,7 +64,7 @@ class ComposeGenerator:
             "TYPE": "FABRIC", # Default to Fabric for performance mods support
             "INIT_MEMORY": host_cfg.init_memory,
             "MAX_MEMORY": host_cfg.max_memory,
-            "TZ": host_cfg.timezone,
+            "TZ": str(host_cfg.timezone),
             "VIEW_DISTANCE": str(compose_cfg.view_distance),
             "VERSION": compose_cfg.version,
             "MODRINTH_ALLOWED_VERSION_TYPE": compose_cfg.mod_version_type,
@@ -77,7 +76,7 @@ class ComposeGenerator:
 
         environment["MODRINTH_PROJECTS"] = ",".join(final_mods)
         environment["CUSTOM_SERVER_PROPERTIES"] = ",".join(custom_server_properties)
-        
+
         compose_content: dict[str, Any] = {
             "services": {
                 "mc": {
@@ -98,13 +97,13 @@ class ComposeGenerator:
                 }
             }
         }
-        
+
         return yaml.dump(
-            compose_content, 
-            default_flow_style=False, 
+            compose_content,
+            default_flow_style=False,
             sort_keys=False
         )
-    
+
 
     @staticmethod
     def to_Mb(ram: str) -> int:

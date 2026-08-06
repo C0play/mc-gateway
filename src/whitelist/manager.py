@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+
 from .repository import BaseWhitelistRepository
 
 
@@ -29,7 +30,7 @@ class WhitelistManager(BaseWhitelistManager):
 
     def __init__(self, whitelist_repo: BaseWhitelistRepository) -> None:
         self.storage = whitelist_repo
-        
+
 
     def validate(self, subdomain: str | None = None, username: str | None = None) -> bool:
         if username and subdomain:

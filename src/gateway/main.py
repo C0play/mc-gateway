@@ -1,23 +1,16 @@
 from ..config.loader import load_config
-
-from ..utils.logger import logger
-from ..utils.keygen import KeyGenerator
-from ..security.crypto import Crypto
-from ..utils.composegen import ComposeGenerator
-
-from ..whitelist.manager import WhitelistManager
-from ..whitelist.repository import SQLWhitelistRepository
-
 from ..container.manager import ContainerManager
 from ..container.repository import SQLContainerRepository
-
 from ..host.manager import SSHHostManager
 from ..host.repository import SQLHostRepository
-
+from ..security.crypto import Crypto
 from ..session.manager import SessionManager
-
+from ..utils.composegen import ComposeGenerator
+from ..utils.keygen import KeyGenerator
+from ..utils.logger import logger
+from ..whitelist.manager import WhitelistManager
+from ..whitelist.repository import SQLWhitelistRepository
 from .server import Server
-
 
 
 def main():
@@ -31,7 +24,7 @@ def main():
 
         container_repo = SQLContainerRepository(KeyGenerator())
         compose_gen =  ComposeGenerator(host_repo, container_repo)
-        
+
         containers = ContainerManager(
             compose_gen,
             container_repo,
@@ -46,10 +39,10 @@ def main():
             containers,
             cfg.shutdown
         )
-        
+
         Server(cfg, whitelist, sessions).start()
 
-    except Exception as e:
+    except Exception as _:
         logger.critical("uncaught exception", exc_info=True)
         return 1
 

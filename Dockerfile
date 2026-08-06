@@ -4,7 +4,6 @@ WORKDIR /app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-    wakeonlan \
     openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
@@ -24,6 +23,3 @@ COPY src ./src
 EXPOSE 25567 25566
 
 ENTRYPOINT ["python", "-m", "src.gateway.main"]
-
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD ["python", "-m", "src.utils.cli", "status"]

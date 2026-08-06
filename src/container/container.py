@@ -1,16 +1,17 @@
-import time
-import threading
 import subprocess
+import threading
+import time
 from abc import ABC, abstractmethod
-from typing import Callable, cast
+from collections.abc import Callable
+from typing import cast
 
+from ..exceptions.errors import ServiceError
 from ..host.host import BaseHost, SSHHost
 from ..utils.logger import logger
-from ..exceptions.errors import ServiceError
 
 
 class BaseContainer(ABC):
-    
+
     def __init__(
             self, subdomain: str, host: BaseHost, mc_port: int,
             rcon_port: int, rcon_password: str
@@ -19,7 +20,7 @@ class BaseContainer(ABC):
         self.host = host
         self.mc_port = mc_port
         self.rcon_port = rcon_port
-        self.rcon_password = rcon_password 
+        self.rcon_password = rcon_password
 
 
     @abstractmethod
@@ -51,7 +52,7 @@ class BaseContainer(ABC):
 
         Returns:
             bool: True if the container started successfully or was already running.
-        
+
         Raises:
             TimeoutError: If the container fails to become online within the expected time.
             ServiceError: If the start command fails.
@@ -65,7 +66,7 @@ class BaseContainer(ABC):
 
         Returns:
             bool: True if the container stopped successfully or was already stopped.
-            
+
         Raises:
             TimeoutError: If the container fails to stop within the expected time.
             ServiceError: If the stop command fails.
@@ -80,19 +81,19 @@ class BaseContainer(ABC):
              dict[str, str]: Dictionary containing 'ip' and 'mc_port'.
         """
         return {
-            "ip": self.host.ip,  
+            "ip": self.host.ip,
             "mc_port": str(self.mc_port)
         }
 
     def __str__(self) -> str:
         return f"Container({self.subdomain})"
-    
+
     def __repr__(self) -> str:
         return f"Container<{self.subdomain}>"
-    
+
     def __hash__(self) -> int:
         return hash(self.subdomain)
-    
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, BaseContainer):
             return False
@@ -117,10 +118,10 @@ class SSHContainer(BaseContainer):
                     (e.g. write compose.yml and mark as initialized). If None,
                     the container is assumed to already be deployed.
         """
-        
+
         super().__init__(subdomain, host, mc_port, rcon_port, rcon_password)
         self.host = cast(SSHHost, self.host)
-        
+
         self.path = self._generate_path(str(host.config.path), mc_port)
         self.name = self._generate_name(mc_port)
 
@@ -138,12 +139,12 @@ class SSHContainer(BaseContainer):
         try:
             cmd = ["ssh", f"{self.host.user}@{self.host.ip}", "docker", "inspect", "-f", "{{.State.Running}}", self.name]
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-            
+
             # logger.debug(f"container.is_online inspect: rc={res.returncode} stderr={res.stderr.strip()} stdout={res.stdout.strip()}")
-            
+
             return res.returncode == 0 and res.stdout.strip().lower() == "true"
 
-        except subprocess.TimeoutExpired as e:
+        except subprocess.TimeoutExpired:
             return False
         except subprocess.CalledProcessError as e:
             raise ServiceError(f"docker inspect failed for {self.subdomain}: {e}")
@@ -159,15 +160,14 @@ class SSHContainer(BaseContainer):
             self._start_lock.release()
             return False
         return True
-    
+
 
     def start(self) -> bool:
         try:
             with self._start_lock:
-                if not self.host.is_online():
-                    if not self.host.start():
-                        return False
-                
+                if not self.host.is_online() and not self.host.start():
+                    return False
+
                 self._deploy()
 
                 if self.is_online():
@@ -182,9 +182,9 @@ class SSHContainer(BaseContainer):
                     time.sleep(wait_time)
                     if self.is_online():
                         return True
-                    
+
                 raise TimeoutError(attempts * wait_time)
-            
+
         except subprocess.TimeoutExpired:
             raise TimeoutError(f"compose up timed out for {self.subdomain}")
         except subprocess.CalledProcessError as e:
@@ -193,7 +193,7 @@ class SSHContainer(BaseContainer):
             raise TimeoutError(f"{self.subdomain} was offline after {e.args[0]}s")
         except Exception as e:
             raise ServiceError(f"{self.subdomain} start failed: {e}")
-        
+
 
     def stop(self) -> bool:
         try:
@@ -204,16 +204,16 @@ class SSHContainer(BaseContainer):
                 cmd = ["ssh", f"{self.host.user}@{self.host.ip}", "docker", "compose", "-f", self.path + "/compose.yml", "down"]
                 res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
                 logger.info(f"stopping container {self.name} on {self.host.ip}:{self.mc_port} (rc={res.returncode})")
-                
+
                 attempts, wait_time = 20, 3
                 for _ in range(attempts):
                     time.sleep(wait_time)
                     if not self.is_online():
                         logger.info(f"stopped container {self.name} on {self.host.ip}:{self.mc_port}")
                         return True
-                
+
                 raise TimeoutError(attempts * wait_time)
-        
+
         except subprocess.CalledProcessError as e:
             raise ServiceError(f"docker compose down failed for {self.subdomain}: {e.stderr}")
         except subprocess.TimeoutExpired:
@@ -223,14 +223,14 @@ class SSHContainer(BaseContainer):
         except Exception as e:
             raise ServiceError(f"{self.subdomain} stop failed: {e}")
 
-    
+
     def _deploy(self) -> None:
         """Call deploy callback on first start if not yet initialized."""
 
         if self._deploy_fn is None:
             logger.debug(f"container {self.subdomain} already deployed")
             return
-        
+
         logger.info(f"Initializing {self.subdomain}: deploying compose.yml to {self.host.ip}")
         try:
             self._deploy_fn()

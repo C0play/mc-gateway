@@ -1,12 +1,7 @@
 import peewee
-from playhouse.postgres_ext import (
-    JSONField,
-    
-
-) 
+from playhouse.postgres_ext import JSONField
 
 from ..config.config import PostgresConfig
-
 
 __db__ = peewee.PostgresqlDatabase(None)
 

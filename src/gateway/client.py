@@ -1,25 +1,19 @@
 import socket
-from enum import IntEnum
 
-from ..utils.logger import logger
-
+from ..protocol.protocol import BaseProtocol
 
 
-class State(IntEnum):
-    Null = 0
-    Status = 1
-    Login = 2
-    Transfer = 3
-
-
-
-class Client():
+class Client:
     """
     Represents a connected Minecraft client.
     Stores socket information, protocol state, and authentication details.
     """
 
-    def __init__(self, client_socket: socket.socket, addr: tuple[str, int]) -> None:
+    def __init__(
+        self,
+        client_socket: socket.socket,
+        addr: tuple[str, int],
+    ) -> None:
         """
         Initializes the Client with a socket and address.
 
@@ -31,15 +25,13 @@ class Client():
         self.ip = addr[0]
         self.mc_port = addr[1]
 
+        self.packets: BaseProtocol
         self.username: str | None = None
         self.subdomain: str | None = None
-        
-        self.state = State.Null
 
 
-    def updateState(self, newState: int)  -> None:
-        """Updates the protocol state of the client."""
-        self.state = newState
+    def set_protocol(self, protocol: BaseProtocol) -> None:
+        self.packets = protocol
 
 
     def close(self):
@@ -47,9 +39,8 @@ class Client():
         try:
             self.socket.close()
         except Exception as e:
-            logger.error(f"{self} closing client failed: {e}")
-            raise ConnectionError(f"{self} closing client {e}")
-    
+            raise ConnectionError(f"{self} failed to close socket: {e}")
+
 
     def __eq__(self, other) -> bool:
         if not isinstance(other, Client):
@@ -65,4 +56,3 @@ class Client():
         unam_str = ", " + self.username if self.username else ""
         subd_str = ", " + self.subdomain if self.subdomain else ""
         return f"Client<{self.ip}, {self.mc_port}" + unam_str + subd_str + ">"
-

@@ -1,18 +1,19 @@
-import time
 import threading
+import time
 from abc import ABC, abstractmethod
 
 from ..config.config import ShutdownConfig
-
 from ..container.container import BaseContainer
 from ..container.manager import ContainerManager
-
+from ..exceptions.errors import (
+    BadRequestError,
+    ConflictError,
+    NotFoundError,
+    ServiceError,
+)
 from ..gateway.client import Client
-
-from .session import Session
-
 from ..utils.logger import logger
-from ..exceptions.errors import BadRequestError, ConflictError, NotFoundError, ServiceError
+from .session import Session
 
 
 class BaseSessionManager(ABC):
@@ -24,7 +25,7 @@ class BaseSessionManager(ABC):
         self.cfg = shutdown_config
 
     @abstractmethod
-    def open(self, client: Client, subdomain: str) -> Session:
+    def open(self, client: Client) -> Session:
         """
         Creates a new session for the client connected to the specified subdomain.
 
@@ -38,7 +39,8 @@ class BaseSessionManager(ABC):
         Raises:
             ConflictError: If the client already has a session or container is marked for deletion.
             NotFoundError: If the target container does not exist.
-            ServiceError: If loading the container fails unexpectedly.
+            ServiceError: If loading the container fails.
+            ValueError: If the client's subdomain is None
         """
         ...
 
@@ -46,7 +48,7 @@ class BaseSessionManager(ABC):
     def interrupt(self, reason: str, username: str = "", subdomain: str = "", ip: str = "") -> None:
         """
         Force closes all client sessions matching the criteria.
-        
+
         Args:
             reason: The disconnect reason sent to clients.
             username: (Optional) Kick specific user.
@@ -57,7 +59,7 @@ class BaseSessionManager(ABC):
             BadRequestError: If neither subdomain nor ip is provided.
         """
         ...
-    
+
     @abstractmethod
     def close(self, client: Client) -> None:
         """
@@ -70,7 +72,7 @@ class BaseSessionManager(ABC):
             NotFoundError: If the client has no open session.
         """
         ...
-    
+
     @abstractmethod
     def autoshutdown(self) -> None:
         """
@@ -80,7 +82,7 @@ class BaseSessionManager(ABC):
 
 
 class SessionManager(BaseSessionManager):
-    
+
     def __init__(self, container_manager: ContainerManager, shutdown_config: ShutdownConfig) -> None:
         self.containers = container_manager
         self.cfg = shutdown_config
@@ -89,44 +91,47 @@ class SessionManager(BaseSessionManager):
         self.sessions: dict[Client, Session] = {}
 
 
-    def open(self, client: Client, subdomain: str) -> Session:
+    def open(self, client: Client) -> Session:
+
+        if client.subdomain is None:
+            raise ValueError("client has no subdomain configured")
 
         with self.sessions_lock:
             if client in self.sessions:
-                raise ConflictError(f"{client} already has a session")
-        
+                raise ConflictError("client already has a session")
+
         if self.containers.storage.read(
             allow_empty=True,
-            subdomain=subdomain,
+            subdomain=client.subdomain,
             to_be_deleted=True
         ):
-            raise ConflictError(f"container {subdomain} is marked for deletion")
-        
+            raise ConflictError(f"container {client.subdomain} is marked for deletion")
+
         try:
-            container = self.containers.load(subdomain)
-        except NotFoundError:
-            raise
-        except Exception as e:
-            logger.exception(f"failed to get {subdomain} container from manager: {e}")
-            raise ServiceError(f"failed to open session for {subdomain}: {e}")
-        else:
+            container = self.containers.load(client.subdomain)
             session = Session(client, container)
+
             with self.sessions_lock:
                 self.sessions[client] = session
-            
-            logger.debug(f"created {container} for {client}")
+
+            logger.debug(f"{client}: container created")
             return session
+
+        except (ServiceError, NotFoundError) as e:
+            with self.sessions_lock:
+                del self.sessions[client]
+            raise ServiceError(f"failed to load '{client.subdomain}' container: {e}")
 
 
     def interrupt(self, reason: str = "You were kicked", username: str = "", subdomain: str = "", ip: str = "") -> None:
 
         if not (username or subdomain or ip):
             raise BadRequestError("one of [username, subdomain, ip] has to be specified")
-        
+
         clients = []
         with self.sessions_lock:
             snapshot = self.sessions
-        
+
         if username:
             clients = list(filter(lambda c: c.username == username, list(snapshot.keys())))
             logger.debug(f"Interrupting session of {username}")
@@ -146,12 +151,12 @@ class SessionManager(BaseSessionManager):
         with self.sessions_lock:
             if client not in self.sessions:
                 raise NotFoundError("session does not exist")
-        
+
             del self.sessions[client]
 
 
     def autoshutdown(self) -> None:
-        
+
         container_timeout = max(120, int(self.cfg.container_idle_timeout))
         check_interval = max(15, min(60, container_timeout // 3))
 
@@ -177,22 +182,22 @@ class SessionManager(BaseSessionManager):
                 container_clients[session.container] = clients + 1
 
             for container, clients in container_clients.items():
-                
+
                 if clients > 0:
                     container_idle_since.pop(container, None)
                     continue
-                
+
                 idle_for = now - container_idle_since.setdefault(container, now)
                 if idle_for < container_timeout:
                     continue
-                
+
                 logger.info(f"{container} idle for {int(idle_for)}s, stopping.")
                 try:
                     self.containers.unload(container.subdomain)
                     container_idle_since.pop(container, None)
                 except Exception:
                     logger.exception(f"failed to stop {container}")
-                    
+
 
     def list(self) -> list[dict[str, str]]:
 

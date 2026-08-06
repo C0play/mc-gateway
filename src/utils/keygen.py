@@ -40,22 +40,22 @@ class KeyGenerator:
             for key in used_keys:
                 KeyGenerator.keys.add(key)
             KeyGenerator._initialized = True
-        
+
 
     def gen(self) -> str:
         """
         Generate a `length` character long string, in Crockford base32.
-        
+
         Returns:
             key: Generated, unique key.
 
         Raises:
             RuntimeError: If KeyGenerator was not initialized.
         """
-        
+
         if not KeyGenerator._initialized:
-            raise RuntimeError(f"KeyGenerator is not initialized")
-        
+            raise RuntimeError("KeyGenerator is not initialized")
+
         while True:
             new = ''.join(secrets.choice(self.ALPHABET) for _ in range(self.length))
             if new not  in KeyGenerator.keys:

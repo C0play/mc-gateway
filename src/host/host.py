@@ -1,25 +1,25 @@
 import os
-import time
 import socket
+import subprocess
 import tempfile
 import threading
-import subprocess
-from subprocess import CalledProcessError
+import time
 from abc import ABC, abstractmethod
-from typing import Callable
+from collections.abc import Callable
+from subprocess import CalledProcessError
 
-from ..utils.logger import logger
 from ..api.data.models.host import HostConfig
 from ..exceptions.errors import ServiceError
+from ..utils.logger import logger
 
 
 class BaseHost(ABC):
-    
+
     def __init__(self, ip: str, mac: str, config: HostConfig) -> None:
         self.ip = ip
         self.mac = mac
         self.config = config
-        self.on_start: Callable[['BaseHost'], None] | None = None
+        self.on_start: Callable[[BaseHost], None] | None = None
 
 
     @abstractmethod
@@ -31,7 +31,7 @@ class BaseHost(ABC):
             bool: True if the host is online and reachable.
         """
         ...
-    
+
     @abstractmethod
     def is_starting(self) -> bool:
         """
@@ -46,7 +46,7 @@ class BaseHost(ABC):
     def start(self) -> bool:
         """
         Initiates the host startup sequence.
-        
+
         Returns:
             bool: True if the host is online.
 
@@ -55,7 +55,7 @@ class BaseHost(ABC):
             ServiceError: If the start command fails.
         """
         ...
-    
+
     @abstractmethod
     def stop(self) -> bool:
         """
@@ -69,7 +69,7 @@ class BaseHost(ABC):
             ServiceError: If the stop command fails.
         """
         ...
-    
+
     @abstractmethod
     def deploy(self, mc_port: int, config: str) -> None:
         """
@@ -83,7 +83,7 @@ class BaseHost(ABC):
             ServiceError: If deployment fails.
         """
         ...
-    
+
     @abstractmethod
     def remove(self, mc_port: int) -> None:
         """
@@ -96,7 +96,7 @@ class BaseHost(ABC):
             ServiceError: If removal fails.
         """
         ...
-    
+
     def dict(self) -> dict[str, str]:
         """
         Returns host parameters as a dictionary.
@@ -108,21 +108,21 @@ class BaseHost(ABC):
             "ip": self.ip,
             "mac": self.mac,
         }
-    
+
     def register_callback(self, on_start: Callable[['BaseHost'], None]) -> None:
         if self.on_start:
-            return 
+            return
         self.on_start = on_start
 
     def __str__(self) -> str:
         return f"Host({self.ip})"
-    
+
     def __repr__(self) -> str:
         return f"Host<{self.ip}>"
-    
+
     def __hash__(self) -> int:
         return hash(self.ip)
-    
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, BaseHost):
             return False
@@ -136,7 +136,7 @@ class SSHHost(BaseHost):
 
     def __init__(self, ip: str, mac: str, config: HostConfig) -> None:
         super().__init__(ip, mac, config)
-        
+
         self.user = self.config.user
         self.path = self.config.path
 
@@ -175,8 +175,7 @@ class SSHHost(BaseHost):
                 if self.is_online():
                     return True
 
-                cmd = ["wakeonlan", self.mac]
-                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=0.1)
+                self._send_magic_packet()
 
                 attempts, wait_time = 6, 10
                 for _ in range(attempts):
@@ -210,7 +209,7 @@ class SSHHost(BaseHost):
                     logger.info("Host %s shutdown command succeeded", self.ip)
                 else:
                     logger.warning("Host %s shutdown command failed with code %s", self.ip, res.returncode)
-                    
+
                 if res.returncode != 0:
                     raise ServiceError(f"host {self.ip} shutdown failed: stdout={res.stdout} stderr={res.stderr}")
 
@@ -227,22 +226,22 @@ class SSHHost(BaseHost):
             raise TimeoutError(f"host {self.ip} offline after {e.args[0]}s")
         except Exception as e:
             raise ServiceError(f"host {self.ip} stop failed: {e}")
-        
-    
+
+
     def deploy(self, mc_port: int, config: str) -> None:
         """
         Creates the container directory if needed and writes compose.yml via SCP.
         """
-        
+
         path = f"{self.path}/server_{mc_port}"
         filepath = path + "/compose.yml"
         dir_exists = False
         mkdir_cmd = ["ssh", f"{self.user}@{self.ip}", "mkdir", "-p", path]
         logger.debug(mkdir_cmd)
-        try: 
+        try:
             subprocess.run(mkdir_cmd, capture_output=True, text=True, check=True)
         except CalledProcessError as e:
-            if "File exists" not in e.output: 
+            if "File exists" not in e.output:
                 raise ServiceError(f"failed to create directory {path} on {self.ip}: {e}")
             dir_exists = True
         except Exception as e:
@@ -254,7 +253,7 @@ class SSHHost(BaseHost):
                 tmp_path = tmp.name
         except Exception as e:
             raise ServiceError(f"writing tempfile for {path} failed: {e}")
-        
+
         try:
             scp_cmd = ["scp", tmp_path, f"{self.user}@{self.ip}:{filepath}"]
             subprocess.run(scp_cmd, capture_output=True, text=True, check=True)
@@ -293,6 +292,31 @@ class SSHHost(BaseHost):
         callback = self.on_start
         self.on_start = None
         callback(self)
+
+
+    def _send_magic_packet(self) -> None:
+        
+        sanitized_mac = self.mac
+        spacers = [":", "-", "_", " "]
+        try:
+            if present := [x for x in spacers if x in sanitized_mac]:
+                for x in present:
+                    sanitized_mac = self.mac.replace(x, "")
+
+            if len(sanitized_mac) > 12:
+                logger.debug(f"Invalid mac: {sanitized_mac}")
+                return None
+            
+            sanitized_mac = sanitized_mac.lower()
+
+            frame: bytes = bytes.fromhex("FF"*6 + sanitized_mac*16)
+
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                sock.sendto(frame, ("255.255.255.255", 7))
+        except Exception as e:
+            logger.exception(f"Failed to send magic packet for {sanitized_mac}")
+
 
 
     def dict(self) -> dict[str, str]:
