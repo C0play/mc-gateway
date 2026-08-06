@@ -1,11 +1,11 @@
 import socket
 from abc import ABC, abstractmethod
 
-import mc_types as mct
 from typing_extensions import Any
 
-from src.exceptions import BadRequestError
 
+from src.exceptions import BadRequestError
+from .mc_types import *
 from .types import BaseData, HandshakeData, NullPhase
 
 
@@ -33,8 +33,8 @@ class BasePacket:
         """
         try:
             return BaseData(
-                length  = mct.read_varint(self.client),
-                id      = mct.read_varint(self.client)
+                length  = read_varint(self.client),
+                id      = read_varint(self.client)
             )
         except BadRequestError as e:
             raise BadRequestError(f"packet header: {e}")
@@ -46,7 +46,7 @@ class BasePacket:
     def _assemble_packet(id: bytearray, data: bytearray) -> bytearray:
         """Prepends the packet's length to it's payload."""
         body = id + data
-        length = mct.write_varInt(len(body))
+        length = write_varInt(len(body))
         return  length + body
 
 
@@ -70,10 +70,10 @@ class HandshakePacket(BasePacket):
             self.data = HandshakeData(
                 length  = header.length,
                 id      = header.id,
-                version = mct.read_varint(self.client),
-                address = mct.read_String(self.client),
-                port    = mct.read_u_short(self.client),
-                intent  = mct.read_varint(self.client)
+                version = read_varint(self.client),
+                address = read_String(self.client),
+                port    = read_u_short(self.client),
+                intent  = read_varint(self.client)
             )
         except BadRequestError as e:
             raise BadRequestError(f"handshake packet: {e}")
@@ -82,18 +82,18 @@ class HandshakePacket(BasePacket):
 
 
     def reencode(self) -> bytearray:
-        id      = mct.write_varInt(self.data.id)
-        version = mct.write_varInt(self.data.version)
-        addr    = mct.write_string(self.data.address)
-        port    = mct.write_u_short(self.data.port)
-        intent  = mct.write_varInt(self.data.intent)
+        id      = write_varInt(self.data.id)
+        version = write_varInt(self.data.version)
+        addr    = write_string(self.data.address)
+        port    = write_u_short(self.data.port)
+        intent  = write_varInt(self.data.intent)
 
         packet_data = version + addr + port + intent
         return self._assemble_packet(id, packet_data)
 
 
     def _read_header(self) -> BaseData:
-        if self.client.recv(1, socket.MSG_PEEK) == 0xFE:
+        if self.client.recv(1, socket.MSG_PEEK) == b'\xFE':
             raise BadRequestError("legacy ping packets are not supported")
         return super()._read_header()
 
@@ -113,9 +113,13 @@ class BaseStatusPacket(ABC, BasePacket):
         ...
 
     @abstractmethod
-    def respond(self) -> None:
+    def respond(self, game_version: str, proto_version: int) -> None:
         """
         Sends a Status Response packet.
+
+        Args:
+            game_version: For example 1.21.8
+            proto_version: For example 773
         
         Raises:
             ConnectionError: If sending the response fails.

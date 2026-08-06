@@ -1,6 +1,4 @@
-import bisect
 import socket
-from operator import itemgetter
 
 from .protocol import BaseProtocol, HandshakePacket
 from .version766 import Protocol as Protocol766
@@ -23,18 +21,40 @@ class ProtocolFactory:
 
         Returns:
             BaseProtocol: Protocol class version requested by the client.
+
+        Raises:
+            NotImplementedError: If a suitable protocol handler can't be found for the requested version.
         """
 
         handshake = HandshakePacket(client_socket)
         handshake.read()
 
-        idx = bisect.bisect_left(
-            cls.versions,
-            handshake.data.version,
-            key = itemgetter(0),
-        )
+        if not cls.versions:
+            raise NotImplementedError(f"there are no handlers registered")
 
-        if cls.versions[idx][0] == handshake.data.version:
-            return cls.versions[idx][1](client_socket, handshake)
+        idx = cls._binsearch(handshake.data.version)
 
-        return cls.versions[idx - 1][1](client_socket, handshake)
+        if cls.versions[idx][0] > handshake.data.version:
+            raise NotImplementedError(f"there are no handlers for protocol version {handshake.data.version}")
+
+        return cls.versions[idx][1](client_socket, handshake)
+
+
+    @classmethod
+    def _binsearch(cls, version: int) -> int:
+
+        a, b = 0, len(cls.versions) - 1
+
+        while (a <= b):
+
+            m = (a + b) // 2
+
+            if cls.versions[m][0] == version:
+                return m
+
+            if cls.versions[m][0] < version:
+                a = m + 1
+            elif cls.versions[m][0] > version: 
+                b = m - 1
+
+        return b

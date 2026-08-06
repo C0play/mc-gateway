@@ -175,8 +175,7 @@ class SSHHost(BaseHost):
                 if self.is_online():
                     return True
 
-                cmd = ["wakeonlan", self.mac]
-                subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=0.1)
+                self._send_magic_packet()
 
                 attempts, wait_time = 6, 10
                 for _ in range(attempts):
@@ -293,6 +292,31 @@ class SSHHost(BaseHost):
         callback = self.on_start
         self.on_start = None
         callback(self)
+
+
+    def _send_magic_packet(self) -> None:
+        
+        sanitized_mac = self.mac
+        spacers = [":", "-", "_", " "]
+        try:
+            if present := [x for x in spacers if x in sanitized_mac]:
+                for x in present:
+                    sanitized_mac = self.mac.replace(x, "")
+
+            if len(sanitized_mac) > 12:
+                logger.debug(f"Invalid mac: {sanitized_mac}")
+                return None
+            
+            sanitized_mac = sanitized_mac.lower()
+
+            frame: bytes = bytes.fromhex("FF"*6 + sanitized_mac*16)
+
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                sock.sendto(frame, ("255.255.255.255", 7))
+        except Exception as e:
+            logger.exception(f"Failed to send magic packet for {sanitized_mac}")
+
 
 
     def dict(self) -> dict[str, str]:

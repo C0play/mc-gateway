@@ -64,7 +64,7 @@ class ComposeGenerator:
             "TYPE": "FABRIC", # Default to Fabric for performance mods support
             "INIT_MEMORY": host_cfg.init_memory,
             "MAX_MEMORY": host_cfg.max_memory,
-            "TZ": host_cfg.timezone,
+            "TZ": str(host_cfg.timezone),
             "VIEW_DISTANCE": str(compose_cfg.view_distance),
             "VERSION": compose_cfg.version,
             "MODRINTH_ALLOWED_VERSION_TYPE": compose_cfg.mod_version_type,

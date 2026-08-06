@@ -81,14 +81,14 @@ class Server:
                 readyl, _, _ = select.select(sockets, [], [], 1.0)
 
                 if self._server_socket in readyl and not self._shutdown:
-                    self._handle_mc_socket()
+                    threading.Thread(target=self._handle_mc_socket, daemon=True).start()
 
         except Exception as e:
-            logger.critical(f"SERVER: unexpected error {e}")
+            logger.critical(f"SERVER: unexpected error: {e}")
         finally:
-            logger.info("cleaning resources")
+            logger.info("SERVER: cleaning resources")
             self._server_socket.close()
-            logger.info("Server stopped")
+            logger.info("SERVER: stopped")
 
 
     def _run_api(self):
@@ -118,11 +118,13 @@ class Server:
         client = None
         try:
             client_sock, addr = self._server_socket.accept()
+            client = Client(client_sock, addr)
 
             protocol = self._protocols.get(client_sock)
-            client = Client(client_sock, addr, protocol)
+            client.set_protocol(protocol)
 
-            threading.Thread(target=self._process_handshake, daemon=True, args=(client,)).start()
+            self._process_handshake(client)
+
         except (BadRequestError, NotImplementedError) as e:
             logger.info(f"{client}: {e}")
         except (ConnectionError, ConnectionResetError, BrokenPipeError, OSError) as e:
@@ -150,17 +152,22 @@ class Server:
         elif client.packets.handshake.data.intent == Intent.Login:
             self._handle_login(client)
         else:
-            raise BadRequestError(f"unsupported handshake intent: {client.packets.handshake.data.intent}")
+            raise BadRequestError(f"unsupported intent: {client.packets.handshake.data.intent}")
 
 
-    def _proces_status_req(self, client):
-        client.proto.status.read()
-        logger.info(f"{client} {client.proto.status.data}")
-        client.proto.status.respond()
+    def _proces_status_req(self, client: Client):
+        client.packets.status.read()
+        logger.info(f"{client} {client.packets.status.data}")
 
-        client.proto.ping.read()
-        logger.info(f"{client} {client.proto.ping.data}")
-        client.proto.ping.respond()
+        container = self._sessions.containers.storage.read(allow_empty=False, subdomain=client.subdomain)
+        game = container[0].config["version"]
+        proto = client.packets.handshake.data.version
+
+        client.packets.status.respond(game, proto)
+
+        client.packets.ping.read()
+        logger.info(f"{client} {client.packets.ping.data}")
+        client.packets.ping.respond()
 
 
     def _handle_login(self, client: Client):

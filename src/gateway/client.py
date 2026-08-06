@@ -13,7 +13,6 @@ class Client:
         self,
         client_socket: socket.socket,
         addr: tuple[str, int],
-        protocol: BaseProtocol,
     ) -> None:
         """
         Initializes the Client with a socket and address.
@@ -25,10 +24,14 @@ class Client:
         self.socket = client_socket
         self.ip = addr[0]
         self.mc_port = addr[1]
-        self.packets: BaseProtocol = protocol
 
+        self.packets: BaseProtocol
         self.username: str | None = None
         self.subdomain: str | None = None
+
+
+    def set_protocol(self, protocol: BaseProtocol) -> None:
+        self.packets = protocol
 
 
     def close(self):

@@ -2,7 +2,7 @@ import socket
 from dataclasses import dataclass
 from uuid import UUID
 
-import mc_types as mct
+from .mc_types import *
 
 from ..exceptions import BadRequestError
 from .protocol import (
@@ -46,12 +46,12 @@ class StatusPacket(BaseStatusPacket):
         )
 
 
-    def respond(self) -> None:
+    def respond(self, game_version: str, proto_version: int) -> None:
         txt = "Press Join to check your server's status!"
         msg = f"""{{
                     "version": {{
-                        "name": "1.21.8",
-                        "protocol": 772
+                        "name": "{game_version}",
+                        "protocol": {proto_version}
                     }},
                     "players": {{
                         "max": 0,
@@ -63,8 +63,8 @@ class StatusPacket(BaseStatusPacket):
                     "enforcesSecureChat": "false"
                 }}"""
 
-        id = mct.write_varInt(StatusPhase.clientbound.status_response)
-        data = mct.write_string(msg)
+        id = write_varInt(StatusPhase.clientbound.status_response)
+        data = write_string(msg)
         bytes = self._assemble_packet(id, data)
         try:
             self.client.sendall(bytes)
@@ -82,7 +82,7 @@ class PingPacket(BasePingPacket):
             self.data = PingData(
                 length  = header.length,
                 id      = header.id,
-                payload = mct.read_long(self.client)
+                payload = read_long(self.client)
             )
         except BadRequestError as e:
             raise BadRequestError(f"ping packet: {e}")
@@ -91,8 +91,8 @@ class PingPacket(BasePingPacket):
 
 
     def respond(self) -> None:
-        id      = mct.write_varInt(StatusPhase.clientbound.pong_response)
-        data    = mct.write_long(self.data.payload)
+        id      = write_varInt(StatusPhase.clientbound.pong_response)
+        data    = write_long(self.data.payload)
         bytes   = self._assemble_packet(id, data)
         try:
             self.client.sendall(bytes)
@@ -110,8 +110,8 @@ class LoginPacket(BaseLoginPacket):
             self.data = LoginData(
                 length  = header.length,
                 id      = header.id,
-                name    = mct.read_String(self.client),
-                uuid    = mct.read_uuid(self.client),
+                name    = read_String(self.client),
+                uuid    = read_uuid(self.client),
             )
         except BadRequestError as e:
             raise BadRequestError(f"login packet: {e}")
@@ -120,17 +120,17 @@ class LoginPacket(BaseLoginPacket):
 
 
     def reencode(self) -> bytearray:
-        id      = mct.write_varInt(LoginPhase.serverbound.login_start)
-        name    = mct.write_string(self.data.name)
-        uuid    = mct.write_uuid(self.data.uuid)
+        id      = write_varInt(LoginPhase.serverbound.login_start)
+        name    = write_string(self.data.name)
+        uuid    = write_uuid(self.data.uuid)
         return self._assemble_packet(id, name + uuid)
 
 
     def respond(self, msg: str, color: str = "green") -> None:
         msg_json = f"""{{text: "{msg}", color: "{color}"}}"""
 
-        packet_id = mct.write_varInt(LoginPhase.clientbound.disconnect_login)
-        packet_data = mct.write_string(msg_json)
+        packet_id = write_varInt(LoginPhase.clientbound.disconnect_login)
+        packet_data = write_string(msg_json)
         bytes = self._assemble_packet(packet_id, packet_data)
         try:
             self.client.sendall(bytes)
