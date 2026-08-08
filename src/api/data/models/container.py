@@ -55,7 +55,7 @@ class OptContainerData(BaseModel):
 
 
 class FullContainer(_ContainerID, ContainerData):
-    """API key model equivalent to a DB record."""
+    """Container model equivalent to a DB record."""
     initialized: bool = Field(..., description="Flag whether compose.yml was deployed on the host")
     to_be_deleted: bool = Field(..., description="Flag whether container is set to be deleted")
 

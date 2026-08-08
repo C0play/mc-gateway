@@ -30,7 +30,7 @@ class ApiKeyRouter:
             name: str,
         ):
             if auth.user_role.requires_ownership and auth.user_email != email:
-                raise ForbiddenError()
+                raise ForbiddenError("You can only modify your own keys.")
             
             return self.api_keys.create(email, name)
 
@@ -43,7 +43,7 @@ class ApiKeyRouter:
         ):
             if auth.user_role.requires_ownership:
                 if email is not None and auth.user_email != email:
-                    raise ForbiddenError("You can view only your own keys.")
+                    raise ForbiddenError("You can only view your own keys.")
                 return self.api_keys.read(
                     user = auth.user_email,
                     name = name
@@ -59,7 +59,7 @@ class ApiKeyRouter:
             name: str,
         ):
             if auth.user_role.requires_ownership and auth.user_email != email:
-                raise ForbiddenError("This key is not your's")
+                raise ForbiddenError("You can only modify your own keys.")
 
             now = datetime.now()
             return self.api_keys.update(email, name, active=False, revoked_at=now)

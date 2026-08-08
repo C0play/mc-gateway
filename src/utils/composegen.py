@@ -7,15 +7,6 @@ from ..api.data.models.host import HostConfig
 from ..container.repository import BaseContainerRepository
 from ..host.repository import BaseHostRepository
 
-# Default optimization mods for Fabric 1.21.8
-PERFORMANCE_MODS = [
-        "fabric-api:0.133.4+1.21.8",
-        "lithium:mc1.21.8-0.18.1-fabric",
-        "sodium:mc1.21.8-0.7.0-fabric",
-        "c2me-fabric:0.3.4.0.0+1.21.8",
-        "ferrite-core:8.0.0-fabric",
-    ]
-
 
 class ComposeGenerator:
 
@@ -49,11 +40,6 @@ class ComposeGenerator:
         if not (init_ram_val <= container_ram_val <= max_ram_val):
             raise ValueError("container memory is not within [init_memory, max_memory] range.")
 
-        final_mods = compose_cfg.modrinth_projects.copy()
-        for pm in PERFORMANCE_MODS:
-            if pm not in final_mods:
-                final_mods.append(pm)
-
         custom_server_properties = ["LOG_IPS=true"]
 
         environment = {
@@ -74,7 +60,7 @@ class ComposeGenerator:
             "LOG_TIMESTAMP": "true",
         }
 
-        environment["MODRINTH_PROJECTS"] = ",".join(final_mods)
+        environment["MODRINTH_PROJECTS"] = ",".join(compose_cfg.modrinth_projects)
         environment["CUSTOM_SERVER_PROPERTIES"] = ",".join(custom_server_properties)
 
         compose_content: dict[str, Any] = {

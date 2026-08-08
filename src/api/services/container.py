@@ -18,7 +18,6 @@ from ..data.models.validators import validate_container_ram_against_host
 from ..data.models.response import MessageResponse
 from ..data.models.utils import merge_configs
 
-from ...utils.composegen import PERFORMANCE_MODS
 from ...utils.keygen import KeyGenerator
 
 from ...exceptions.errors import BadRequestError, NotFoundError
@@ -39,9 +38,6 @@ class ContainerService:
 
 
     def add(self, data: ContainerData) -> FullContainer:
-        for mod in PERFORMANCE_MODS:
-            if mod not in data.config.modrinth_projects:
-                data.config.modrinth_projects.append(mod)
 
         host_records = self.hosts.storage.read(ip=str(data.ip))
         if not host_records:
@@ -60,7 +56,7 @@ class ContainerService:
 
     def update(self, subdomain: str, data: OptContainerData | UserOptContainerData) -> FullContainer | UserFullContainer:
 
-        data = ContainerService._generate_update_data(data)
+        data = ContainerService._convert_model(data)
 
         if not KeyGenerator.validate(subdomain):
             raise BadRequestError("subdomain is not valid")
@@ -71,19 +67,16 @@ class ContainerService:
         old_cfg = ContainerConfig.model_validate(old_container.config)
         new_cfg = merge_configs(old_cfg, data.config)
 
-        for mod in PERFORMANCE_MODS:
-            if mod not in new_cfg.modrinth_projects:
-                new_cfg.modrinth_projects.append(mod)
-
-        target_ip = str(data.ip) if data.ip else str(old_container.host.ip)
-        host_records = self.hosts.storage.read(ip=target_ip)
-        if not host_records:
-            raise NotFoundError(f"host {target_ip} does not exist")
-        host_cfg = HostConfig.model_validate(host_records[0].config)
-        validate_container_ram_against_host(host_cfg, new_cfg)
+        self._validate_ram(
+            str(data.ip) if data.ip else str(old_container.host.ip),
+            new_cfg
+        )
 
         container_updates = data.model_dump(exclude_unset=True, exclude_none=True)
-        update_fields: dict = {**container_updates, "config": new_cfg.model_dump(mode="json")}
+        update_fields: dict = {
+            **container_updates,
+            "config": new_cfg.model_dump(mode="json")
+        }
 
         if "ip" in update_fields:
             update_fields["host"] = str(update_fields.pop("ip"))
@@ -133,7 +126,7 @@ class ContainerService:
         
 
     @staticmethod
-    def _generate_update_data(user_config: OptContainerData | UserOptContainerData) -> OptContainerData:
+    def _convert_model(user_config: OptContainerData | UserOptContainerData) -> OptContainerData:
         
         if isinstance(user_config, OptContainerData):
             return user_config
@@ -148,3 +141,12 @@ class ContainerService:
             owner = None,
             config = config
         )
+
+
+    def _validate_ram(self, ip, new_cfg):
+
+        host_records = self.hosts.storage.read(ip=ip)
+        if not host_records:
+            raise NotFoundError(f"host {ip} does not exist")
+        host_cfg = HostConfig.model_validate(host_records[0].config)
+        validate_container_ram_against_host(host_cfg, new_cfg)

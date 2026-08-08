@@ -33,6 +33,18 @@ class WhitelistRouter:
             return self.whitelists.add(username, subdomain)
 
 
+        @router.get("/", response_model=list[WhitelistEntry])
+        def fetch_whitelist_entry(
+            auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.whitelist_read])], 
+            username: str | None = None,
+            subdomain: str | None = None
+        ):
+            if auth.user_role.requires_ownership:
+                return self.whitelists.read(subdomain, username, auth.user_email)
+                
+            return self.whitelists.read(subdomain, username)
+
+
         @router.delete("/", response_model=WhitelistEntry)
         def remove_whitelist_entry(
             auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.whitelist_delete])],
@@ -55,18 +67,6 @@ class WhitelistRouter:
                 self.whitelists.assert_owner(subdomain, auth.user_email)
             
             return self.whitelists.kick(username, subdomain)
-
-
-        @router.get("/", response_model=list[WhitelistEntry])
-        def fetch_whitelist_entry(
-            auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.whitelist_read])], 
-            username: str | None = None,
-            subdomain: str | None = None
-        ):
-            if auth.user_role.requires_ownership:
-                return self.whitelists.read(subdomain, username, auth.user_email)
-                
-            return self.whitelists.read(subdomain, username)
 
 
         return router

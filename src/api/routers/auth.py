@@ -46,7 +46,7 @@ class AuthRouter:
 
 
         @router.post("/login", response_model = SessionResponse)
-        def session_login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
+        def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
             if not self.users.validate_password(form_data.username, form_data.password):
                 raise UnauthorizedError("Wrong password or email")
 
@@ -54,7 +54,7 @@ class AuthRouter:
 
 
         @router.post("/logout", response_model = MessageResponse)
-        def session_logout(auth: Annotated[AuthContext, Depends(self.auth.require_bearer)]):
+        def logout(auth: Annotated[AuthContext, Depends(self.auth.require_bearer)]):
             if not auth.session_id:
                 raise BadRequestError(f"this action requires bearer authentication")
             
@@ -63,14 +63,14 @@ class AuthRouter:
 
 
         @router.get("/session", response_model = SessionResponse)
-        def session_get(auth: Annotated[AuthContext, Depends(self.auth.require_bearer)]):
+        def fetch_session(auth: Annotated[AuthContext, Depends(self.auth.require_bearer)]):
             if not auth.session_id:
                 raise BadRequestError(f"this action requires bearer authentication")
             return self.sessions.get(uuid=auth.session_id)
 
 
         @router.post("/refresh", response_model = SessionResponse)
-        def session_refresh(auth: Annotated[AuthContext, Depends(self.auth.require_bearer)]):
+        def refresh_session(auth: Annotated[AuthContext, Depends(self.auth.require_bearer)]):
             if not auth.session_id:
                 raise BadRequestError(f"this action requires bearer authentication")
             return self.sessions.extend(auth.session_id)

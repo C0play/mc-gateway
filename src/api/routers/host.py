@@ -31,6 +31,16 @@ class HostRouter:
             return self.hosts.add(host)
 
 
+        @router.get(
+            "/",
+            dependencies=[Security(REQ, scopes=[Permission.host_read])],
+            response_model=list[FullHost]
+        )
+        def fetch_host(ip: IPvAnyAddress | None = None):
+            str_ip = str(ip) if ip is not None else None
+            return self.hosts.read(str_ip)
+
+
         @router.patch(
             "/{ip}",
             dependencies=[Security(REQ, scopes=[Permission.host_update])],
@@ -57,14 +67,5 @@ class HostRouter:
         def kick_all_from_host(ip: IPvAnyAddress):
             return self.hosts.kick(str(ip))
 
-
-        @router.get(
-            "/",
-            dependencies=[Security(REQ, scopes=[Permission.host_read])],
-            response_model=list[FullHost]
-        )
-        def fetch_host(ip: IPvAnyAddress | None = None):
-            str_ip = str(ip) if ip is not None else None
-            return self.hosts.read(str_ip)
 
         return router

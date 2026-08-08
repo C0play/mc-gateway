@@ -25,7 +25,6 @@ class ContainerRouter:
     def get_router(self) -> APIRouter:
 
         router = APIRouter(prefix="/containers", tags=["containers"])
-
         REQ = self.auth.require
 
         @router.post(
@@ -36,15 +35,16 @@ class ContainerRouter:
         def create_container(data: ContainerData):
             return self.containers.add(data)
 
+        @router.get("/", response_model = list[FullContainer] | list[UserFullContainer])
+        def fetch_container(
+            auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.container_read])],
+            subdomain: str | None = None,
+        ):
+            if auth.user_role.requires_ownership:
+                return self.containers.read(subdomain, auth.user_email)
+            
+            return self.containers.read(subdomain)
 
-        @router.delete(
-            "/{subdomain}",
-            dependencies = [Security(REQ, scopes=[Permission.container_delete])],
-            response_model = FullContainer
-        )
-        def remove_container(subdomain: str):
-            return self.containers.remove(subdomain)
-        
 
         @router.patch(
             "/{subdomain}",
@@ -61,16 +61,14 @@ class ContainerRouter:
             return self.containers.update(subdomain, data)
 
 
-        @router.get("/", response_model = list[FullContainer] | list[UserFullContainer])
-        def fetch_container(
-            auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.container_read])],
-            subdomain: str | None = None,
-        ):
-            if auth.user_role.requires_ownership:
-                return self.containers.read(subdomain, auth.user_email)
-            
-            return self.containers.read(subdomain)
-            
+        @router.delete(
+            "/{subdomain}",
+            dependencies = [Security(REQ, scopes=[Permission.container_delete])],
+            response_model = FullContainer
+        )
+        def remove_container(subdomain: str):
+            return self.containers.remove(subdomain)
+
 
         @router.post(
             "/{subdomain}/kick",

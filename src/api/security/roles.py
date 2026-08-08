@@ -143,6 +143,19 @@ class RoleRepository:
 
 
     def get(self, name: str) -> Role:
+        """
+        Fetches a Role object based on the provided name.
+        
+        Args:
+            name: The name of the role.
+
+        Returns:
+            Role: Role object.
+
+        Raises:
+            NotFoundError: If the name does not correspond to a registered role.
+            
+        """
         if name not in self.roles:
             raise NotFoundError(f"role {name} does not exist")
         
