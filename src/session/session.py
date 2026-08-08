@@ -119,10 +119,12 @@ class Session:
         if not self.container.is_online():
             raise ConnectionError("can not connect if container is offline")
 
-        attempts, wait_time = 3, 10
+        attempts, wait_time = 3, 1
         for attempt in range(attempts):
+
             if self._client_disconnected(wait_time):
                 raise ConnectionAbortedError("client disconnected")
+            wait_time = 10
 
             try:
                 self.container_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
