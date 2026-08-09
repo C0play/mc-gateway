@@ -61,8 +61,12 @@ class ContainerService:
         if not KeyGenerator.validate(subdomain):
             raise BadRequestError("subdomain is not valid")
 
+
         old_container_records = self.containers.storage.read(allow_empty=False, subdomain=subdomain)
         old_container = old_container_records[0]
+        
+        if old_container.host is None:
+            raise NotFoundError(f"container has no host assigned")
 
         old_cfg = ContainerConfig.model_validate(old_container.config)
         new_cfg = merge_configs(old_cfg, data.config)

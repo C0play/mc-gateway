@@ -137,6 +137,9 @@ class ContainerManager(BaseContainerManager):
                 logger.exception(f"failed to get container {subdomain} parameters")
                 raise ServiceError(f"failed to load container {subdomain}: {e}")
 
+            if container_record.host is None:
+                raise NotFoundError(f"container has no host assigned")
+
             ip = cast(str, container_record.host.ip)
             mc_port = cast(int, container_record.mc_port)
             rcon_port = cast(int, container_record.rcon_port)
