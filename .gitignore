@@ -41,3 +41,6 @@ ssh/*
 *.sh
 *.sql
 postgres_data
+
+*.yml
+!compose.example.yml

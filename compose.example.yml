@@ -31,7 +31,7 @@ services:
       - ./postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "sh -c 'pg_isready -U admin -d mcgateway'"]
+      test: [ "CMD-SHELL", "sh -c 'pg_isready -U admin -d mcgateway'" ]
       interval: 10s
       timeout: 3s
       retries: 3
