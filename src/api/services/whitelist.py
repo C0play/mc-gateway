@@ -61,17 +61,6 @@ class WhitelistService:
         return lst
 
 
-    def kick(self, username: str, subdomain: str) -> MessageResponse:
-        records = self.whitelist.storage.read(username=username, container=subdomain)
-        if not records:
-            raise NotFoundError(f"player {username} is not whitelisted on {subdomain}")
-
-        self.server_sessions.interrupt(username=username)
-        return MessageResponse(
-            message=f"Player {username} has been kicked from server {subdomain}"
-        )
-    
-
     def assert_owner(self, subdomain: str, email: str) -> None:
         self.containers.storage.read(
             allow_empty=False,

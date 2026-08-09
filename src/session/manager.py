@@ -38,9 +38,9 @@ class BaseSessionManager(ABC):
 
         Raises:
             ConflictError: If the client already has a session or container is marked for deletion.
-            NotFoundError: If the target container does not exist.
+            NotFoundError: If the target container does not exist or it's host is None.
             ServiceError: If loading the container fails.
-            ValueError: If the client's subdomain is None
+            ValueError: If the client's subdomain is None.
         """
         ...
 

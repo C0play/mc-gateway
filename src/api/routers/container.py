@@ -74,14 +74,15 @@ class ContainerRouter:
             "/{subdomain}/kick",
             response_model = MessageResponse
         )
-        def kick_all_from_container(
+        def kick_from_container(
             auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.container_kick])],
             subdomain: str,
+            username: str | None = None,
         ):
             if auth.user_role.requires_ownership:
                  self.containers.assert_owner(subdomain, auth.user_email)
                  
-            return self.containers.kick(subdomain)
+            return self.containers.kick(subdomain, username)
 
 
         return router

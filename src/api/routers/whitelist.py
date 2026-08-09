@@ -57,16 +57,4 @@ class WhitelistRouter:
             return self.whitelists.remove(username, subdomain)
 
 
-        @router.post("/{subdomain}/kick", response_model=MessageResponse)
-        def kick_player_from_container(
-            auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.whitelist_kick])],
-            username: str,
-            subdomain: str,
-        ):
-            if auth.user_role.requires_ownership:
-                self.whitelists.assert_owner(subdomain, auth.user_email)
-            
-            return self.whitelists.kick(username, subdomain)
-
-
         return router

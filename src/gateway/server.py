@@ -191,7 +191,7 @@ class Server:
         try:
             session = self._sessions.open(client)
         except (ConflictError, NotFoundError) as e:
-            logger.info(f"{client}: refused to create session: {e}")
+            logger.warning(f"{client}: refused to create session: {e}")
             client.packets.login.respond("Can't connect to server.", "red")
             return
         except ValueError as e:

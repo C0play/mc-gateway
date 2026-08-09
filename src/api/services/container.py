@@ -105,8 +105,15 @@ class ContainerService:
         return full_container_from_record(deleted_container)
 
 
-    def kick(self, subdomain: str) -> MessageResponse:
-        self.server_sessions.interrupt(subdomain=subdomain)
+    def kick(self, subdomain: str, username: str | None = None) -> MessageResponse:
+        filters = {"subdomain" : subdomain}
+        if username is not None:
+            filters["username"] = username
+
+        self.server_sessions.interrupt(**filters)
+
+        if username is not None:
+            return MessageResponse(message=f"Player {username} has been kicked from server {subdomain}")
         return MessageResponse(message=f"All players from server {subdomain} have been kicked")
 
 

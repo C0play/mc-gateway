@@ -75,6 +75,7 @@ class AuthenticationManager:
                     detail="session expired"
                 )
             session = self.sessions.get(uuid=UUID(access_token))
+            self.sessions.extend(UUID(access_token))
             user = self.users.read_one(email=session.user_email)
         
         else:
