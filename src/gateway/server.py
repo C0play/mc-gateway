@@ -109,9 +109,8 @@ class Server:
 
 
     def _handle_mc_socket(self):
-        """Accepts a connection on the Minecraft socket, creates a Client instance and
-        starts a thread to handle the connection.
-        """
+        """Accepts a connection on the Minecraft socket and creates a Client instance to handle it."""
+
         with self._client_count_lock:
             self._client_count += 1
 
@@ -221,10 +220,13 @@ class Server:
                 client.packets.login.respond("Server is offline, starting.", "aqua")
                 logger.info(f"{client}: container offline, starting...")
 
-                if session.container.start():
+                try:
+                    session.container.start()
                     logger.info(f"{client}: container online")
-                else:
-                    logger.error(f"{client}: container start failed")
+                except TimeoutError as e:
+                    self._sessions.containers.unload(session.container.subdomain)
+                    logger.error(f"{client}: container start timed out: {e}")
+
         finally:
             self._sessions.close(client)
 

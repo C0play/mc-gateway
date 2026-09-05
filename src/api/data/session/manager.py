@@ -18,10 +18,10 @@ from ....exceptions.errors import (
 class BaseSessionManager(ABC):
     """Class serving as a translation layer between the database and the API."""
 
-    VALID_FOR_SECONDS = 600
+    VALID_FOR_SECONDS = 15*60
     MAX_VALID_HOURS = 2
-    EXTEND_THRESHOLD_SECONDS = 200
-    EXTEND_SECONDS = 400
+    EXTEND_THRESHOLD_SECONDS = VALID_FOR_SECONDS * 0.7
+    EXTEND_SECONDS = VALID_FOR_SECONDS * 0.5
     PURGE_INTERVAL_SECONDS = 180
 
     def __init__(self, repository: BaseSessionRepository) -> None:
@@ -84,7 +84,7 @@ class BaseSessionManager(ABC):
 
         Args:
             uuid: The session's uuid.
-        
+
         Returns:
             Session: The deleted session model.
         """
@@ -102,7 +102,7 @@ class SQLSessionManager(BaseSessionManager):
 
         if email is None and uuid is None:
             raise BadRequestError(f"one of [email, uuid] has to be specified")
-        
+
         if email:
             timestamp = datetime.now() + timedelta(seconds=SQLSessionManager.VALID_FOR_SECONDS)
             record = self.storage.create(email, datetime.now(), timestamp)
@@ -117,7 +117,7 @@ class SQLSessionManager(BaseSessionManager):
             raise BadRequestError(f"email and uuid can not be empty")
 
         return session_from_record(record)
-    
+
 
     def extend(self, uuid: UUID) -> Session:
 
@@ -132,10 +132,10 @@ class SQLSessionManager(BaseSessionManager):
         created_at = cast(datetime, old_record.valid_until)
         valid_until = cast(datetime, old_record.valid_until)
         user_email = cast(str, old_record.user)
-        
+
         refresh_threshold = timedelta(seconds = SQLSessionManager.EXTEND_THRESHOLD_SECONDS)
         max_hours = timedelta(hours=SQLSessionManager.MAX_VALID_HOURS)
-        
+
         now = datetime.now()
 
         if (valid_until - now < refresh_threshold and now - created_at < max_hours):
@@ -149,10 +149,11 @@ class SQLSessionManager(BaseSessionManager):
             )
             self.storage.delete(uuid)
             logger.debug(f"Extended {str(uuid)[:6]} until {timestamp}. New UUID: {new_record.id}")
-            
+
             return session_from_record(new_record)
-        
-        logger.debug(f"Not extending {str(uuid)[:6]}")
+
+        reason = "under refresh threshold" if valid_until - now >= refresh_threshold else "expired"
+        logger.debug(f"Not extending {str(uuid)[:6]}. Reason: {reason}")
         return self.get(uuid=uuid)
 
 

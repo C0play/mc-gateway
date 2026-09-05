@@ -17,7 +17,7 @@ class HostRouter:
 
 
     def get_router(self) -> APIRouter:
-        
+
         router = APIRouter(prefix="/hosts", tags=["hosts"])
 
         REQ = self.auth.require
@@ -64,8 +64,8 @@ class HostRouter:
             dependencies=[Security(REQ, scopes=[Permission.host_kick])],
             response_model=MessageResponse
         )
-        def kick_all_from_host(ip: IPvAnyAddress):
-            return self.hosts.kick(str(ip))
+        def kick_all_from_host(ip: IPvAnyAddress, message: str = ""):
+            return self.hosts.kick(str(ip), message)
 
 
         return router

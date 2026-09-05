@@ -186,11 +186,11 @@ class SSHContainer(BaseContainer):
                 raise TimeoutError(attempts * wait_time)
 
         except subprocess.TimeoutExpired:
-            raise TimeoutError(f"compose up timed out for {self.subdomain}")
+            raise TimeoutError(f"'compose up' timed out for {self.subdomain}")
         except subprocess.CalledProcessError as e:
-            raise ServiceError(f"compose up failed for {self.subdomain}: {e}" + e.stdout + e.stderr)
+            raise ServiceError(f"'compose up' failed for {self.subdomain}: {e}" + e.stdout + e.stderr)
         except TimeoutError as e:
-            raise TimeoutError(f"{self.subdomain} was offline after {e.args[0]}s")
+            raise TimeoutError(f"{self.subdomain} start failed: container was offline after {e.args[0]}s")
         except Exception as e:
             raise ServiceError(f"{self.subdomain} start failed: {e}")
 

@@ -57,6 +57,8 @@ class Session:
         last_send = None
         total_rtt, rtt_samples = 0.0, 0
 
+        kick_sent = False
+
         try:
             self.client.socket.setblocking(True)
             self.container_socket.setblocking(True)
@@ -64,11 +66,9 @@ class Session:
             while True:
                 rlist, _, _ = select.select([self.client.socket, self.container_socket], [], [])
 
-                if self._server_disconnect_signal:
+                if self._server_disconnect_signal and not kick_sent:
+                    kick_sent = True
                     self._send_kick()
-                    self._transfer(self.client.socket, self.container_socket, "client disconnected before kick")
-                    self._transfer(self.container_socket, self.client.socket, "container disconnected before kick")
-                    break
 
                 if self.client.socket in rlist:
                     self._transfer(self.client.socket, self.container_socket, "disconnected during forwarding")
@@ -83,7 +83,6 @@ class Session:
                     total_rtt += time.monotonic() - last_send
                     rtt_samples += 1
                     last_send = None
-
 
         except StopIteration as e:
             logger.info(f"{self.client}: {e}")

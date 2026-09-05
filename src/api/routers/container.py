@@ -78,11 +78,12 @@ class ContainerRouter:
             auth: Annotated[AuthContext, Security(REQ, scopes=[Permission.container_kick])],
             subdomain: str,
             username: str | None = None,
+            message: str = "",
         ):
             if auth.user_role.requires_ownership:
                  self.containers.assert_owner(subdomain, auth.user_email)
                  
-            return self.containers.kick(subdomain, username)
+            return self.containers.kick(subdomain, username, message)
 
 
         return router
