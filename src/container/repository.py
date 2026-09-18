@@ -18,9 +18,8 @@ class BaseContainerRepository(ABC):
         """
         self.key = key_generator
 
-
     @abstractmethod
-    def create(self, ip: str, mc_port: int, rcon_port: int, rcon_password: str, config: dict) -> Container:
+    def create(self, ip: str, mc_port: int, rcon_port: int, config: dict) -> Container:
         """
         Creates a new container record.
 
@@ -28,7 +27,6 @@ class BaseContainerRepository(ABC):
             ip: The IP address of the host running the container.
             mc_port: The Minecraft port exposed by the container.
             rcon_port: The RCON port exposed by the container.
-            rcon_password: The RCON password for the container.
             config: Serialized ComposeConfig to persist for deferred deployment.
 
         Returns:
@@ -88,7 +86,6 @@ class BaseContainerRepository(ABC):
         ...
 
 
-
 class SQLContainerRepository(BaseContainerRepository):
     """
     Implementation of storage using Peewee ORM.
@@ -100,8 +97,7 @@ class SQLContainerRepository(BaseContainerRepository):
         key_generator.load(keys)
         super().__init__(key_generator)
 
-
-    def create(self, ip: str, mc_port: int, rcon_port: int, rcon_password: str, config: dict) -> Container:
+    def create(self, ip: str, mc_port: int, rcon_port: int, config: dict) -> Container:
         try:
             new_key = self.key.gen()
             container = Container.create(
@@ -109,13 +105,11 @@ class SQLContainerRepository(BaseContainerRepository):
                 host=ip,
                 mc_port=mc_port,
                 rcon_port=rcon_port,
-                rcon_password=rcon_password,
                 config=config,
             )
             return container
         except Exception as e:
             raise ServiceError(f"failed to create container {ip}:{mc_port}: {e}")
-
 
     def read(self, allow_empty: bool, **filters) -> list[Container]:
         query = Container.select()
@@ -129,19 +123,15 @@ class SQLContainerRepository(BaseContainerRepository):
         return res
 
     def update(self, subdomain: str, **fields) -> Container:
-        rows = (Container
-                    .update(**fields)
-                    .where(Container.subdomain == subdomain)
-                    .execute())
+        rows = (
+            Container.update(**fields).where(Container.subdomain == subdomain).execute()
+        )
         if rows == 0:
             raise NotFoundError(f"container {subdomain} does not exist")
         return Container.get_by_id(subdomain)
 
-
     def delete(self, subdomain: str) -> None:
-        query = (Container
-                    .delete()
-                    .where(Container.subdomain == subdomain))
+        query = Container.delete().where(Container.subdomain == subdomain)
 
         rows_deleted = query.execute()
 

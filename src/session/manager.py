@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 
 from ..config.config import ShutdownConfig
 from ..container.container import BaseContainer
-from ..container.manager import ContainerManager
+from ..container.manager import ControllerContainerManager
 from ..exceptions.errors import (
     BadRequestError,
     ConflictError,
@@ -20,7 +20,7 @@ class BaseSessionManager(ABC):
     """A base class for managing sessions"""
 
     @abstractmethod
-    def __init__(self, container_manager: ContainerManager, shutdown_config: ShutdownConfig) -> None:
+    def __init__(self, container_manager: ControllerContainerManager, shutdown_config: ShutdownConfig) -> None:
         self.containers = container_manager
         self.cfg = shutdown_config
 
@@ -83,7 +83,7 @@ class BaseSessionManager(ABC):
 
 class SessionManager(BaseSessionManager):
 
-    def __init__(self, container_manager: ContainerManager, shutdown_config: ShutdownConfig) -> None:
+    def __init__(self, container_manager: ControllerContainerManager, shutdown_config: ShutdownConfig) -> None:
         self.containers = container_manager
         self.cfg = shutdown_config
 

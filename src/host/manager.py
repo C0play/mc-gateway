@@ -5,7 +5,7 @@ from typing import cast
 from ..api.data.models.host import HostConfig
 from ..exceptions.errors import NotFoundError, ServiceError
 from ..utils.logger import logger
-from .host import BaseHost, SSHHost
+from .host import BaseHost, ControllerHost
 from .repository import BaseHostRepository
 
 
@@ -55,6 +55,7 @@ class BaseHostManager(ABC):
         """
         ...
 
+    @abstractmethod
     def list(self) -> list[dict[str, str]]:
         """
         Returns a dictionary representation of all active hosts.
@@ -65,20 +66,14 @@ class BaseHostManager(ABC):
         ...
 
 
-
-class SSHHostManager(BaseHostManager):
-    """
-    Manages active SSHHost instances.
-    """
-
+class ControllerHostManager(BaseHostManager):
     def __init__(self, host_repo: BaseHostRepository) -> None:
         super().__init__(host_repo)
 
         self.lock = threading.Lock()
-        self.active_hosts: dict[str, SSHHost] = {}
+        self.active_hosts: dict[str, ControllerHost] = {}
 
-
-    def load(self, ip: str) -> SSHHost:
+    def load(self, ip: str) -> ControllerHost:
         with self.lock:
             if ip in self.active_hosts:
                 return self.active_hosts[ip]
@@ -96,10 +91,9 @@ class SSHHostManager(BaseHostManager):
             else:
                 mac = cast(str, record.mac)
                 config = HostConfig.model_validate(record.config)
-                host = SSHHost(ip, mac, config)
+                host = ControllerHost(ip, mac, config)
                 self.active_hosts[ip] = host
                 return host
-
 
     def unload(self, ip: str) -> None:
 
@@ -108,14 +102,11 @@ class SSHHostManager(BaseHostManager):
             if ip in self.active_hosts:
                 del self.active_hosts[ip]
 
-
     def delete(self, ip: str) -> None:
 
         self.unload(ip)
         logger.debug(f"Removing host {ip} from storage")
         self.storage.delete(ip)
-
-
 
     def list(self) -> list[dict[str, str]]:
         with self.lock:

@@ -1,27 +1,19 @@
-from typing import cast
 from ipaddress import ip_address
+from typing import cast
 
-from ..models.container import FullContainer, ContainerConfig, UserFullContainer, UserContainerConfig
 from ....utils.models import Container as ContainerRecord
+from ..models.container import ContainerConfig, FullContainer
 
 
 def full_container_from_record(record: ContainerRecord) -> FullContainer:
     """Maps a container record to it's full pydantic model."""
-    return FullContainer(
-        ip              = ip_address(record.host.ip),
-        mc_port         = cast(int, record.mc_port),
-        rcon_port       = cast(int, record.rcon_port),
-        config          = ContainerConfig.model_validate(record.config),
-        owner           = str(record.owner), 
-        subdomain       = str(record.subdomain),
-        to_be_deleted   = cast(bool, record.to_be_deleted),
-        initialized     = cast(bool, record.initialized),
-    )
 
-def user_full_container_from_record(record: ContainerRecord) -> UserFullContainer:
-    """Maps a container record to it's stripped pydantic model for users."""
-    return UserFullContainer(
-        config          = UserContainerConfig.model_validate(record.config),
-        subdomain       = str(record.subdomain),
-        initialized     = cast(bool, record.initialized)
+    ip = "127.0.0.1" if record.host is None else record.host.ip
+    return FullContainer(
+        subdomain=str(record.subdomain),
+        ip=ip_address(ip),
+        owner=str(record.owner),
+        config=ContainerConfig.model_validate(record.config),
+        to_be_deleted=cast(bool, record.to_be_deleted),
+        initialized=cast(bool, record.initialized),
     )

@@ -1,27 +1,26 @@
-import subprocess
 import threading
-import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from typing import cast
+from json.decoder import JSONDecodeError
+from typing import Any, Literal
+
+import requests
+from requests.exceptions import HTTPError
+
+from src.api.data.models.container import ContainerConfig
+from src.utils.logger import logger
+from src.utils.rcon import RCON
 
 from ..exceptions.errors import ServiceError
-from ..host.host import BaseHost, SSHHost
-from ..utils.logger import logger
+from ..host.host import BaseHost
 
 
 class BaseContainer(ABC):
-
-    def __init__(
-            self, subdomain: str, host: BaseHost, mc_port: int,
-            rcon_port: int, rcon_password: str
-        ) -> None:
-        self.subdomain = subdomain
-        self.host = host
-        self.mc_port = mc_port
-        self.rcon_port = rcon_port
-        self.rcon_password = rcon_password
-
+    @abstractmethod
+    def __init__(self, *args) -> None:
+        self.subdomain: str
+        self.host: BaseHost
+        self.mc_port: int
 
     @abstractmethod
     def is_online(self) -> bool:
@@ -31,7 +30,6 @@ class BaseContainer(ABC):
         Returns:
             bool: True if the container is running and responsive, False otherwise.
         """
-        ...
 
     @abstractmethod
     def is_starting(self) -> bool:
@@ -42,54 +40,48 @@ class BaseContainer(ABC):
         Returns:
             bool: True if a start operation is in progress.
         """
-        ...
 
     @abstractmethod
-    def start(self) -> bool:
+    def start(self):
         """
-        Initiates the container startup sequence.
-        Handles host startup if necessary.
-
-        Returns:
-            bool: True if the container started successfully or was already running.
+        Initiates the container startup sequence. Handles host startup if necessary and deploys
+        container configuration.
 
         Raises:
             TimeoutError: If the container fails to become online within the expected time.
             ServiceError: If the start command fails.
         """
-        ...
 
     @abstractmethod
-    def stop(self) -> bool:
+    def stop(self):
         """
         Initiates the container shutdown sequence.
-
-        Returns:
-            bool: True if the container stopped successfully or was already stopped.
 
         Raises:
             TimeoutError: If the container fails to stop within the expected time.
             ServiceError: If the stop command fails.
         """
-        ...
 
+    @abstractmethod
+    def send_command(self, cmd: str):
+        """
+        Sends RCON command.
+
+        Args:
+            cmd (str): Command to be sent to the server.
+        """
+
+    @abstractmethod
     def dict(self) -> dict[str, str]:
         """
         Returns a dictionary representation of the container's connection parameters.
 
         Returns:
-             dict[str, str]: Dictionary containing 'ip' and 'mc_port'.
+             dict[str, str]: Dictionary containing container parameters.
         """
-        return {
-            "ip": self.host.ip,
-            "mc_port": str(self.mc_port)
-        }
 
     def __str__(self) -> str:
         return f"Container({self.subdomain})"
-
-    def __repr__(self) -> str:
-        return f"Container<{self.subdomain}>"
 
     def __hash__(self) -> int:
         return hash(self.subdomain)
@@ -100,152 +92,143 @@ class BaseContainer(ABC):
         return self.subdomain == other.subdomain
 
 
-
-class SSHContainer(BaseContainer):
-    """
-    A container implementation that manages a Docker container on a remote host via SSH.
-    """
+class ControllerContainer(BaseContainer):
+    STATUS_PATH = "/container/status/%d"
+    STOP_PATH = "/container/stop/%d"
+    START_PATH = "/container/start/%d"
+    DEPLOY_PATH = "/container/create"
+    DELETE_PATH = "/container/delete/%d"
+    STATUS = Literal["starting", "online", "stopping", "offline"]
+    TIMEOUT = 120
 
     def __init__(
-            self, subdomain: str, host: SSHHost, mc_port: int, rcon_port: int, rcon_password: str,
-            deploy: Callable[..., None] | None = None,
+        self,
+        subdomain: str,
+        host: BaseHost,
+        authority: str,
+        config: ContainerConfig,
     ) -> None:
-        """
-        Initializes the SSHContainer.
+        self.subdomain = subdomain
+        self.host = host
+        self.mc_port = config.mc_port
+        self.authority = authority if authority[-1] != "/" else authority[:-1]
+        self.config = config
 
-        Args:
-            deploy: If provided, called on first start to deploy the container
-                    (e.g. write compose.yml and mark as initialized). If None,
-                    the container is assumed to already be deployed.
-        """
+        self.deploy_callback: Callable | None = None
 
-        super().__init__(subdomain, host, mc_port, rcon_port, rcon_password)
-        self.host = cast(SSHHost, self.host)
-
-        self.path = self._generate_path(str(host.config.path), mc_port)
-        self.name = self._generate_name(mc_port)
-
-        self._deploy_fn = deploy
-        self._start_lock = threading.Lock()
-        self._stop_lock = threading.Lock()
-
+        self.start_event = threading.Event()
+        self.stop_event = threading.Event()
+        self.create_event = threading.Event()
+        self.delete_event = threading.Event()
 
     def is_online(self) -> bool:
-        """
-        Implementation using `docker inspect` via SSH.
-        """
-        if not self.host.is_online():
-            return False
-        try:
-            cmd = ["ssh", f"{self.host.user}@{self.host.ip}", "docker", "inspect", "-f", "{{.State.Running}}", self.name]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-
-            # logger.debug(f"container.is_online inspect: rc={res.returncode} stderr={res.stderr.strip()} stdout={res.stdout.strip()}")
-
-            return res.returncode == 0 and res.stdout.strip().lower() == "true"
-
-        except subprocess.TimeoutExpired:
-            return False
-        except subprocess.CalledProcessError as e:
-            raise ServiceError(f"docker inspect failed for {self.subdomain}: {e}")
-        except Exception as e:
-            raise ServiceError(f"{self.subdomain} status check failed: {e}")
-
+        return (
+            self.__request_task(
+                "get",
+                ControllerContainer.STATUS_PATH % self.mc_port,
+            )["status"]
+            == "online"
+        )
 
     def is_starting(self) -> bool:
-        """
-        Checks local lock to determine if start is in progress.
-        """
-        if self._start_lock.acquire(blocking=False):
-            self._start_lock.release()
-            return False
-        return True
+        return (
+            self.__request_task(
+                "get",
+                ControllerContainer.STATUS_PATH % self.mc_port,
+            )["status"]
+            == "starting"
+        )
 
+    def start(self):
 
-    def start(self) -> bool:
+        if not (self.host.is_starting() or self.host.is_online()):
+            self.host.start()
+
+        if self.deploy_callback is not None:
+            self.__deploy()
+            self.deploy_callback()
+            self.deploy_callback = None
+
+        res = self.__request_task(
+            "post",
+            ControllerContainer.START_PATH % self.mc_port,
+        )
+        if not self.start_event.wait(timeout=ControllerContainer.TIMEOUT):
+            raise TimeoutError(f"task {res['id']} timed out")
+        self.start_event.clear()
+
+    def stop(self):
+
+        res = self.__request_task(
+            "post",
+            ControllerContainer.STOP_PATH % self.mc_port,
+        )
+        if not self.stop_event.wait(timeout=ControllerContainer.TIMEOUT):
+            raise TimeoutError(f"task {res['id']} timed out")
+        self.stop_event.clear()
+
+    def delete(self):
+        res = self.__request_task(
+            "delete",
+            ControllerContainer.DELETE_PATH % self.mc_port,
+            body=self.config.model_dump(mode="json"),
+        )
+
+        if not self.delete_event.wait(timeout=ControllerContainer.TIMEOUT):
+            raise TimeoutError(f"task {res['id']} timed out")
+        self.delete_event.clear()
+
+    def send_command(self, cmd: str) -> None:
+        with RCON(
+            self.host.ip,
+            self.config.rcon_port,
+            self.config.rcon_password,
+        ) as rcon:
+            if not rcon.login():
+                logger.error(f"{self} RCON: authentication failed")
+                return
+            logger.info(f"{self}: RCON: /kick sent")
+            rcon.send(cmd)
+
+    def dict(self) -> dict[str, str]:
+        return {
+            "subdomain": self.subdomain,
+            "host": self.host.ip,
+        }
+
+    def set_event(self, type: str):
+        getattr(self, f"{type}_event").set()
+
+    def __deploy(self):
+        res = self.__request_task(
+            "post",
+            ControllerContainer.DEPLOY_PATH,
+            body=self.config.model_dump(mode="json"),
+        )
+
+        if not self.create_event.wait(timeout=ControllerContainer.TIMEOUT):
+            raise TimeoutError(f"task {res['id']} timed out")
+        self.create_event.clear()
+
+    def __request_task(
+        self, method: str, path: str, body: dict | None = None
+    ) -> dict[str, Any]:
+        url = self.authority + path
         try:
-            with self._start_lock:
-                if not self.host.is_online() and not self.host.start():
-                    return False
+            func = getattr(requests, method)
+            resp = func(url=url, json=body)
+            resp.raise_for_status()
+            json = resp.json()
 
-                self._deploy()
+            if path.startswith(ControllerContainer.STATUS_PATH[:-2]):
+                return json
 
-                if self.is_online():
-                    return True
+            if json["status"] == "rejected":
+                raise ServiceError(f"{self}: '{path.split('/')[2]}' task rejected")
+            logger.debug(f"{self}: task '{path}' ({json['id']}) queued")
 
-                cmd = ["ssh", f"{self.host.user}@{self.host.ip}", "docker", "compose", "-f", self.path + "/compose.yml", "up", "-d"]
-                res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-                logger.info(f"starting container {self.name} on {self.host.ip}:{self.mc_port} (rc={res.returncode})")
-
-                attempts, wait_time = 6, 10
-                for _ in range(attempts):
-                    time.sleep(wait_time)
-                    if self.is_online():
-                        return True
-
-                raise TimeoutError(attempts * wait_time)
-
-        except subprocess.TimeoutExpired:
-            raise TimeoutError(f"'compose up' timed out for {self.subdomain}")
-        except subprocess.CalledProcessError as e:
-            raise ServiceError(f"'compose up' failed for {self.subdomain}: {e}" + e.stdout + e.stderr)
-        except TimeoutError as e:
-            raise TimeoutError(f"{self.subdomain} start failed: container was offline after {e.args[0]}s")
-        except Exception as e:
-            raise ServiceError(f"{self.subdomain} start failed: {e}")
-
-
-    def stop(self) -> bool:
-        try:
-            with self._stop_lock:
-                if not self.is_online():
-                    return True
-
-                cmd = ["ssh", f"{self.host.user}@{self.host.ip}", "docker", "compose", "-f", self.path + "/compose.yml", "down"]
-                res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-                logger.info(f"stopping container {self.name} on {self.host.ip}:{self.mc_port} (rc={res.returncode})")
-
-                attempts, wait_time = 20, 3
-                for _ in range(attempts):
-                    time.sleep(wait_time)
-                    if not self.is_online():
-                        logger.info(f"stopped container {self.name} on {self.host.ip}:{self.mc_port}")
-                        return True
-
-                raise TimeoutError(attempts * wait_time)
-
-        except subprocess.CalledProcessError as e:
-            raise ServiceError(f"docker compose down failed for {self.subdomain}: {e.stderr}")
-        except subprocess.TimeoutExpired:
-            raise TimeoutError(f"compose down timed out for {self.subdomain}")
-        except TimeoutError as e:
-            raise TimeoutError(f"{self.subdomain} online after {e.args[0]}s ")
-        except Exception as e:
-            raise ServiceError(f"{self.subdomain} stop failed: {e}")
-
-
-    def _deploy(self) -> None:
-        """Call deploy callback on first start if not yet initialized."""
-
-        if self._deploy_fn is None:
-            logger.debug(f"container {self.subdomain} already deployed")
-            return
-
-        logger.info(f"Initializing {self.subdomain}: deploying compose.yml to {self.host.ip}")
-        try:
-            self._deploy_fn()
-        except Exception as e:
-            logger.error(f"deployment of {self.subdomain} failed {e}")
-        else:
-            logger.info(f"deployment of {self.subdomain} succeeded")
-            self._deploy_fn = None
-
-
-    @staticmethod
-    def _generate_path(host_path: str, mc_port: int) -> str:
-        return f"{host_path}/server_{mc_port}"
-
-
-    @staticmethod
-    def _generate_name(mc_port: int) -> str:
-        return f"mc_{mc_port}"
+            return json
+        except HTTPError as e:
+            raise ServiceError(f"{self}: request failed {e}")
+        except JSONDecodeError as e:
+            raise ServiceError(f"{self}: can not decode content: {e} ")

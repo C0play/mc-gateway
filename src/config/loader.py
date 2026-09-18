@@ -21,18 +21,22 @@ def _load_storage() -> StorageConfig:
     postgres_password = os.getenv("PG_PASSWORD")
     postgres_host = os.getenv("PG_HOST")
     postgres_port = os.getenv("PG_PORT")
-    rcon_key = os.getenv("RCON_KEY")
-    if (postgres_name and postgres_user and postgres_password
-        and postgres_host and postgres_port and rcon_key):
+    if (
+        postgres_name
+        and postgres_user
+        and postgres_password
+        and postgres_host
+        and postgres_port
+    ):
         postgres = PostgresConfig(
             postgres_name,
             postgres_user,
             postgres_password,
             postgres_host,
-            int(postgres_port)
+            int(postgres_port),
         )
         db_init(postgres)
-        return StorageConfig(postgres, rcon_key)
+        return StorageConfig(postgres)
 
     raise ConfigError("failed to load storage configuration")
 
@@ -61,11 +65,11 @@ def load_config() -> Config:
         int(port),
         int(control_port),
         int(max_clients),
-        domain
+        domain,
     )
 
     container_idle_timeout = os.getenv("CONT_IDLE_SEC")
-    if not(container_idle_timeout):
+    if not (container_idle_timeout):
         raise ConfigError("At least one variable is None in ShutdownConfig")
 
     shutdown = ShutdownConfig(

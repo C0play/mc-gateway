@@ -28,5 +28,6 @@ class ServiceError(AppError, RuntimeError):
 
 class ConfigError(Exception):
     """Exception raised for configuration loading errors."""
+
     def __init__(self, *args: object) -> None:
         super().__init__(*args)

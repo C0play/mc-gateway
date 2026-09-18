@@ -8,7 +8,6 @@ from ..container.container import BaseContainer
 from ..gateway.client import Client
 from ..protocol.protocol import BaseLoginPacket, HandshakePacket
 from ..utils.logger import logger
-from ..utils.rcon import RCON
 
 
 class Session:
@@ -29,7 +28,6 @@ class Session:
         self.container_socket = None
         self._server_disconnect_signal = False
         self._server_disconnect_reason = ""
-
 
     def forward(self, handshake: HandshakePacket, login: BaseLoginPacket) -> None:
         """
@@ -64,18 +62,30 @@ class Session:
             self.container_socket.setblocking(True)
 
             while True:
-                rlist, _, _ = select.select([self.client.socket, self.container_socket], [], [])
+                rlist, _, _ = select.select(
+                    [self.client.socket, self.container_socket], [], []
+                )
 
                 if self._server_disconnect_signal and not kick_sent:
                     kick_sent = True
-                    self._send_kick()
+                    self.container.send_command(
+                        f"/kick {self.client.username} {self._server_disconnect_reason}"
+                    )
 
                 if self.client.socket in rlist:
-                    self._transfer(self.client.socket, self.container_socket, "disconnected during forwarding")
+                    self._transfer(
+                        self.client.socket,
+                        self.container_socket,
+                        "disconnected during forwarding",
+                    )
                     last_send = time.monotonic()
 
                 elif self.container_socket in rlist:
-                    self._transfer(self.container_socket, self.client.socket, "container disconnected during forwarding")
+                    self._transfer(
+                        self.container_socket,
+                        self.client.socket,
+                        "container disconnected during forwarding",
+                    )
 
                     if not last_send:
                         continue
@@ -94,13 +104,16 @@ class Session:
             try:
                 self._disconnect()
             except ConnectionError as e:
-                logger.error(f"{self.client}: failed to disconnect container after forwarding: {e}")
+                logger.error(
+                    f"{self.client}: failed to disconnect container after forwarding: {e}"
+                )
 
             if rtt_samples > 0:
                 avg_ms = (total_rtt / rtt_samples) * 1000.0
                 duration = time.monotonic() - sess_start
-                logger.info(f"{self.client}: avg ping {avg_ms:.2f} ms over {rtt_samples} samples (session {duration:.1f}s)")
-
+                logger.info(
+                    f"{self.client}: avg ping {avg_ms:.2f} ms over {rtt_samples} samples (session {duration:.1f}s)"
+                )
 
     def _connect(self) -> None:
         """
@@ -120,25 +133,33 @@ class Session:
 
         attempts, wait_time = 3, 1
         for attempt in range(attempts):
-
             if self._client_disconnected(wait_time):
                 raise ConnectionAbortedError("client disconnected")
             wait_time = 10
 
             try:
-                self.container_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.container_socket.connect((self.container.host.ip, self.container.mc_port))
+                self.container_socket = socket.socket(
+                    socket.AF_INET, socket.SOCK_STREAM
+                )
+                self.container_socket.connect(
+                    (self.container.host.ip, self.container.mc_port)
+                )
 
-                logger.info(f"{self.client}: connection attempt {attempt + 1} to {self.container.subdomain} suceeded")
+                logger.info(
+                    f"{self.client}: connection attempt {attempt + 1} to {self.container.subdomain} suceeded"
+                )
                 return
             except (ConnectionRefusedError, OSError) as e:
                 self._disconnect()
-                logger.warning(f"{self.client}: connection attempt {attempt + 1} to {self.container} failed, retrying in {wait_time}s: {e}")
+                logger.warning(
+                    f"{self.client}: connection attempt {attempt + 1} to {self.container} failed, retrying in {wait_time}s: {e}"
+                )
 
         raise ServiceError(f"failed to connect after {attempts} attempts")
 
-
-    def _transfer(self, source: socket.socket, destination: socket.socket, error_msg: str) -> None:
+    def _transfer(
+        self, source: socket.socket, destination: socket.socket, error_msg: str
+    ) -> None:
         """
         Transfers a portion of data from source to destination.
 
@@ -155,14 +176,13 @@ class Session:
         except (BlockingIOError, OSError):
             data = None
 
-        if not data: # source closed
+        if not data:  # source closed
             raise StopIteration(error_msg)
 
         try:
             destination.sendall(data)
         except (BrokenPipeError, ConnectionResetError, OSError) as _:
             raise StopIteration(error_msg)
-
 
     def _disconnect(self) -> None:
         """
@@ -177,7 +197,6 @@ class Session:
             self.container_socket.close()
         except Exception as e:
             raise ConnectionError(f"failed to close the connection: {e}")
-
 
     def _client_disconnected(self, timeout: float = 0.0) -> bool:
         """
@@ -204,16 +223,6 @@ class Session:
         except Exception:
             return True
 
-
-    def _send_kick(self) -> None:
-        with RCON(self.container.host.ip, self.container.rcon_port, self.container.rcon_password) as rcon:
-            if not rcon.login():
-                logger.error(f"RCON authentication failed for {self.client.subdomain}")
-                return
-            logger.info(f"RCON sent /kick to {self.client.subdomain}")
-            rcon.send(f"/kick {self.client.username} {self._server_disconnect_reason}")
-
-
     def server_disconnect(self, reason: str) -> None:
         """
         Signals that the session should end due to a server-side reason.
@@ -223,7 +232,6 @@ class Session:
         """
         self._server_disconnect_signal = True
         self._server_disconnect_reason = reason
-
 
     def dict(self) -> dict[str, str]:
         return {

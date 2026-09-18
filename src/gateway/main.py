@@ -1,11 +1,9 @@
 from ..config.loader import load_config
-from ..container.manager import ContainerManager
+from ..container.manager import ControllerContainerManager
 from ..container.repository import SQLContainerRepository
-from ..host.manager import SSHHostManager
+from ..host.manager import ControllerHostManager
 from ..host.repository import SQLHostRepository
-from ..security.crypto import Crypto
 from ..session.manager import SessionManager
-from ..utils.composegen import ComposeGenerator
 from ..utils.keygen import KeyGenerator
 from ..utils.logger import logger
 from ..whitelist.manager import WhitelistManager
@@ -17,28 +15,19 @@ def main():
     try:
         cfg = load_config()
 
-        Crypto.initialize(cfg.storage.rcon_key)
-
         host_repo = SQLHostRepository()
-        hosts = SSHHostManager(host_repo)
+        hosts = ControllerHostManager(host_repo)
 
         container_repo = SQLContainerRepository(KeyGenerator())
-        compose_gen =  ComposeGenerator(host_repo, container_repo)
 
-        containers = ContainerManager(
-            compose_gen,
+        containers = ControllerContainerManager(
             container_repo,
-            hosts
+            hosts,
         )
 
-        whitelist = WhitelistManager(
-            SQLWhitelistRepository()
-        )
+        whitelist = WhitelistManager(SQLWhitelistRepository())
 
-        sessions = SessionManager(
-            containers,
-            cfg.shutdown
-        )
+        sessions = SessionManager(containers, cfg.shutdown)
 
         Server(cfg, whitelist, sessions).start()
 
@@ -47,5 +36,5 @@ def main():
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

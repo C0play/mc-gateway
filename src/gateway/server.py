@@ -52,7 +52,6 @@ class Server:
         self._sessions = sessions
         self._protocols = ProtocolFactory()
 
-
         self._client_count_lock = threading.Lock()
         self._client_count = 0
 
@@ -64,8 +63,9 @@ class Server:
         self._server_socket.bind((self.config.server.ip, self.config.server.port))
         self._server_socket.listen(self.config.server.max_clients)
 
-        logger.info(f"SERVER: listening on {self.config.server.ip}:[mc:{self.config.server.port}, api:{self.config.server.control_port}]")
-
+        logger.info(
+            f"SERVER: listening on {self.config.server.ip}:[mc:{self.config.server.port}, api:{self.config.server.control_port}]"
+        )
 
     def start(self) -> None:
         """
@@ -83,13 +83,12 @@ class Server:
                 if self._server_socket in readyl and not self._shutdown:
                     threading.Thread(target=self._handle_mc_socket, daemon=True).start()
 
-        except Exception as e:
-            logger.critical(f"SERVER: unexpected error: {e}")
+        except Exception:
+            logger.exception("SERVER: unexpected error")
         finally:
             logger.info("SERVER: cleaning resources")
             self._server_socket.close()
             logger.info("SERVER: stopped")
-
 
     def _run_api(self):
         """Runs the uvicorn API server in a thread with custom logging configuration."""
@@ -104,9 +103,8 @@ class Server:
             host=self.config.server.ip,
             port=self.config.server.control_port,
             log_config=None,
-            access_log=False
+            access_log=False,
         )
-
 
     def _handle_mc_socket(self):
         """Accepts a connection on the Minecraft socket and creates a Client instance to handle it."""
@@ -128,19 +126,22 @@ class Server:
             logger.info(f"{client}: {e}")
         except (ConnectionError, ConnectionResetError, BrokenPipeError, OSError) as e:
             logger.warning(f"{client}: {e}")
-        except Exception as e:
-            logger.error(f"{client}: unexpected error {e}")
+        except Exception:
+            logger.exception(f"{client}: unexpected error")
         finally:
             if client is not None:
                 client.close()
             with self._client_count_lock:
                 self._client_count -= 1
 
-
     def _process_handshake(self, client: Client) -> None:
-        subdomain, domain = client.packets.handshake.data.address.split('.', 1)
+        subdomain, domain = client.packets.handshake.data.address.split(".", 1)
 
-        if not (self._whitelist.validate(subdomain=subdomain) and self.config.server.domain == domain):
+        if not (
+            self._whitelist.validate(subdomain=subdomain)
+            and self.config.server.domain == domain
+        ):
+            logger.debug(f"invalid domain: registered domain={domain}")
             raise BadRequestError("invalid domain: " + subdomain + "." + domain)
 
         client.subdomain = subdomain
@@ -151,14 +152,17 @@ class Server:
         elif client.packets.handshake.data.intent == Intent.Login:
             self._handle_login(client)
         else:
-            raise BadRequestError(f"unsupported intent: {client.packets.handshake.data.intent}")
-
+            raise BadRequestError(
+                f"unsupported intent: {client.packets.handshake.data.intent}"
+            )
 
     def _proces_status_req(self, client: Client):
         client.packets.status.read()
         logger.info(f"{client} {client.packets.status.data}")
 
-        container = self._sessions.containers.storage.read(allow_empty=False, subdomain=client.subdomain)
+        container = self._sessions.containers.storage.read(
+            allow_empty=False, subdomain=client.subdomain
+        )
         game = container[0].config["version"]
         proto = client.packets.handshake.data.version
 
@@ -168,7 +172,6 @@ class Server:
         logger.info(f"{client} {client.packets.ping.data}")
         client.packets.ping.respond()
 
-
     def _handle_login(self, client: Client):
         client.packets.login.read()
         client.username = client.packets.login.data.name
@@ -176,14 +179,12 @@ class Server:
         logger.info(f"{client}: {client.packets.login.data}")
 
         if not self._whitelist.validate(
-            username = client.packets.login.data.name,
-            subdomain = client.subdomain
+            username=client.packets.login.data.name, subdomain=client.subdomain
         ):
             client.packets.login.respond("You are not whitelisted.", "red")
             raise BadRequestError("unknown player")
 
         self._handle_session(client)
-
 
     def _handle_session(self, client: Client) -> None:
 
@@ -196,8 +197,8 @@ class Server:
         except ValueError as e:
             logger.info(f"{client}: refused to create session: {e}")
             return
-        except ServiceError as e:
-            logger.exception(f"{client}: failed to create session: {e}")
+        except ServiceError:
+            logger.exception(f"{client}: failed to create session")
             return
 
         try:
@@ -212,7 +213,9 @@ class Server:
                     client.packets.login.respond("Can't connect to server.", "red")
 
             elif session.container.is_starting():
-                client.packets.login.respond("Server is starting, please wait.", "green")
+                client.packets.login.respond(
+                    "Server is starting, please wait.", "green"
+                )
                 logger.info(f"{client}: container starting")
                 return
 
@@ -230,16 +233,13 @@ class Server:
         finally:
             self._sessions.close(client)
 
-
     def get_client_count(self) -> int:
         with self._client_count_lock:
             return self._client_count
 
-
     def _init_shutdown(self, reason: str) -> None:
         self._shutdown = True
         logger.info(f"shutting down: {reason}")
-
 
     def _signal_handler(self, signum, _):
         self._init_shutdown(f"received: {signum}")

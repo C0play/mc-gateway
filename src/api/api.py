@@ -1,34 +1,27 @@
 from typing import TYPE_CHECKING
 
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
-from fastapi import (
-    HTTPException,
-    FastAPI,
-    Request,
-    status
-)
 
-from ..utils.logger import logger
 from ..exceptions.errors import (
     BadRequestError,
-    UnauthorizedError,
+    ConflictError,
     ForbiddenError,
     NotFoundError,
-    ConflictError,
     ServiceError,
+    UnauthorizedError,
 )
-from .data.user.repository import SQLUserRepository
+from ..utils.logger import logger
 from .data.api_key.repository import SQLKeyRepository
-from .data.session.repository import SQLSessionRepository
 from .data.session.manager import SQLSessionManager
-
-from .services import *
-from .security import *
+from .data.session.repository import SQLSessionRepository
+from .data.user.repository import SQLUserRepository
 from .routers import *
+from .security import *
+from .services import *
 
 if TYPE_CHECKING:
     from ..gateway.server import Server
-
 
 
 class API:
@@ -36,7 +29,7 @@ class API:
     Handles command execution for the gateway server.
     """
 
-    def __init__(self, server: 'Server') -> None:
+    def __init__(self, server: "Server") -> None:
         """
         Initializes the API.
 
@@ -51,7 +44,6 @@ class API:
         self._register_middleware()
         self._register_routers()
 
-
     def _register_middleware(self) -> None:
 
         @self.app.middleware("http")
@@ -59,15 +51,16 @@ class API:
             client_ip = request.client.host if request.client else "unknown"
             try:
                 response = await call_next(request)
-                
+
                 if request.url.path not in ("/status", "/favicon.ico"):
-                    logger.info(f"API: {client_ip} - [{response.status_code}] {request.method:<7} {request.url.path}")
-                
+                    logger.info(
+                        f"API: {client_ip} - [{response.status_code}] {request.method:<7} {request.url.path}"
+                    )
+
                 return response
             except Exception as e:
                 logger.error(f"API: error processing {request.url.path}: {e}")
                 raise e
-
 
     def _register_routers(self) -> None:
 
@@ -79,15 +72,17 @@ class API:
         authentication = AuthenticationManager(roles, keys, users, sessions)
         authorization = AuthorizationManager(authentication)
 
-        host_service = HostService(server = self.server)
-        container_service = ContainerService(server = self.server)
-        player_service = WhitelistService(server = self.server)
+        host_service = HostService(server=self.server)
+        container_service = ContainerService(server=self.server)
+        player_service = WhitelistService(server=self.server)
 
         auth_router = AuthRouter(sessions, users, authentication).get_router()
         key_router = ApiKeyRouter(keys, authorization).get_router()
         user_router = UserRouter(roles, users, authorization).get_router()
         host_router = HostRouter(host_service, authorization).get_router()
-        container_router = ContainerRouter(container_service, authorization).get_router()
+        container_router = ContainerRouter(
+            container_service, authorization
+        ).get_router()
         player_router = WhitelistRouter(player_service, authorization).get_router()
         system_router = SystemRouter(self.server, authorization).get_router()
 
@@ -98,7 +93,6 @@ class API:
         self.app.include_router(container_router)
         self.app.include_router(player_router)
         self.app.include_router(system_router)
-
 
     def _register_exception_handlers(self) -> None:
 
