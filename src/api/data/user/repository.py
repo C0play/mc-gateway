@@ -1,20 +1,20 @@
 from abc import ABC, abstractmethod
-from peewee import IntegrityError, DoesNotExist
 
-from ..models.user import User
-from ..mappers.user import user_from_record
-from ....utils.models import User as UserRecord
-from ....exceptions.errors import NotFoundError, ConflictError, ServiceError
+from peewee import DoesNotExist, IntegrityError
+
+from ....exceptions.errors import ConflictError, NotFoundError, ServiceError
 from ....security.hashing import hash_password, verify_password
 from ....security.tokens import generate_token_bytes
-
+from ....utils.models import User
+from ..mappers.user import user_from_record
+from ..models.user import User as UserModel
 
 
 class BaseUserRepository(ABC):
     """A base class for managing whitelist parameters stored in persistent storage"""
-    
+
     @abstractmethod
-    def create(self, email: str, password: str, role: str) -> User:
+    def create(self, email: str, password: str, role: str) -> UserModel:
         """
         Creates a new User. (Password is salted and then hashed)
 
@@ -30,9 +30,9 @@ class BaseUserRepository(ABC):
             ConflictError: If the user with the specified email already exists.
         """
         ...
-    
+
     @abstractmethod
-    def read(self, **filters) -> list[User]:
+    def read(self, **filters) -> list[UserModel]:
         """
         Retrieves User records matching the given filters.
 
@@ -40,12 +40,12 @@ class BaseUserRepository(ABC):
             **filters: Field names and values to filter by.
 
         Returns:
-            list[User]: Matching User model instances.
+            list[UserModel]: Matching User model instances.
         """
         ...
-    
+
     @abstractmethod
-    def read_one(self, **filters) -> User:
+    def read_one(self, **filters) -> UserModel:
         """
         Retrieves a single User record matching the given filters.
         If multiple records match, only one is returned.
@@ -54,10 +54,10 @@ class BaseUserRepository(ABC):
             **filters: Field names and values to filter by.
 
         Returns:
-            User: Matching User model instance.
+            UserModel: Matching User model instance.
         """
         ...
-    
+
     @abstractmethod
     def validate_password(self, email: str, password: str) -> bool:
         """
@@ -71,9 +71,9 @@ class BaseUserRepository(ABC):
             bool: True if the hashed password maches the provided one, False otherwise.
         """
         ...
-    
+
     @abstractmethod
-    def update(self, user_email: str, **fields) -> User:
+    def update(self, user_email: str, **fields) -> UserModel:
         """
         Updates arbitrary fields on a User record.
 
@@ -82,7 +82,7 @@ class BaseUserRepository(ABC):
             **fields: Field names and their new values.
 
         Returns:
-            User: The updated User instance.
+            UserModel: The updated User instance.
 
         Raises:
             NotFoundError: If the user does not exist.
@@ -90,7 +90,10 @@ class BaseUserRepository(ABC):
         ...
 
     @abstractmethod
-    def delete(self, user_email: str,) -> User:
+    def delete(
+        self,
+        user_email: str,
+    ) -> UserModel:
         """
         Removes a User record by user_email.
 
@@ -103,17 +106,16 @@ class BaseUserRepository(ABC):
         ...
 
 
-
 class SQLUserRepository(BaseUserRepository):
     """
     Implementation of host storage using Peewee ORM.
     """
-    
-    def create(self, email: str, password: str, role: str) -> User:
+
+    def create(self, email: str, password: str, role: str) -> UserModel:
         try:
             salt = generate_token_bytes(16)
             passwd_hash = hash_password(password, salt)
-            record = UserRecord.create(
+            record = User.create(
                 email=email,
                 passwd_salt=salt.hex(),
                 passwd_hash=passwd_hash,
@@ -125,17 +127,15 @@ class SQLUserRepository(BaseUserRepository):
         except Exception as e:
             raise ServiceError(f"unexpected error while creating a new User: {e}")
 
-
-    def read(self, **filters) -> list[User]:
-        query = UserRecord.select()
+    def read(self, **filters) -> list[UserModel]:
+        query = User.select()
         for field, value in filters.items():
             if value is None:
                 continue
-            query = query.where(getattr(UserRecord, field) == value)
+            query = query.where(getattr(User, field) == value)
         return [user_from_record(r) for r in list(query)]
 
-
-    def read_one(self, **filters) -> User:
+    def read_one(self, **filters) -> UserModel:
         try:
             return self.read(**filters)[0]
         except IndexError:
@@ -143,7 +143,7 @@ class SQLUserRepository(BaseUserRepository):
 
     def validate_password(self, email: str, password: str) -> bool:
         try:
-            record: UserRecord = UserRecord.get_by_id(email)
+            record: User = User.get_by_id(email)
         except DoesNotExist:
             return False
 
@@ -153,27 +153,22 @@ class SQLUserRepository(BaseUserRepository):
             str(record.passwd_hash),
         )
 
-
-    def update(self, user_email: str, **fields) -> User:
-        rows = (UserRecord
-                    .update(**fields)
-                    .where(UserRecord.email == user_email)
-                    .execute())
+    def update(self, user_email: str, **fields) -> UserModel:
+        rows = User.update(**fields).where(User.email == user_email).execute()
         if rows == 0:
             raise NotFoundError(f"User {user_email} does not exist")
-        record = UserRecord.get_by_id(user_email)
+        record = User.get_by_id(user_email)
         return user_from_record(record)
 
-
-    def delete(self, user_email: str,) -> User:
-        record = UserRecord.get_or_none(UserRecord.email == user_email)
+    def delete(
+        self,
+        user_email: str,
+    ) -> UserModel:
+        record = User.get_or_none(User.email == user_email)
         if record is None:
             raise NotFoundError(f"User {user_email} does not exist")
 
-        rows_deleted = (UserRecord
-                        .delete()
-                        .where(UserRecord.email == user_email)
-                        .execute())
+        rows_deleted = User.delete().where(User.email == user_email).execute()
         if rows_deleted == 0:
             raise NotFoundError(f"User {user_email} does not exist")
         return user_from_record(record)

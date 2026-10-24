@@ -1,18 +1,20 @@
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
+
 from peewee import IntegrityError
 
-from ....utils.models import Session as SessionRecord
-from ....exceptions.errors import NotFoundError, ConflictError, ServiceError
-
+from ....exceptions.errors import ConflictError, NotFoundError, ServiceError
+from ....utils.models import Session
 
 
 class BaseSessionRepository(ABC):
     """A base class for managing session parameters stored in persistent storage"""
-    
+
     @abstractmethod
-    def create(self, user_email: str, created_at: datetime, valid_until: datetime) -> SessionRecord:
+    def create(
+        self, user_email: str, created_at: datetime, valid_until: datetime
+    ) -> Session:
         """
         Creates a new Session.
 
@@ -28,9 +30,9 @@ class BaseSessionRepository(ABC):
             ConflictError: If a session for the specified email address already exists.
         """
         ...
-    
+
     @abstractmethod
-    def read(self, **filters) -> list[SessionRecord]:
+    def read(self, **filters) -> list[Session]:
         """
         Retrieves Session records matching the given filters.
 
@@ -41,9 +43,9 @@ class BaseSessionRepository(ABC):
             list[Session]: Matching Session model instances.
         """
         ...
-    
+
     @abstractmethod
-    def update(self, uuid: uuid.UUID, **fields) -> SessionRecord:
+    def update(self, uuid: uuid.UUID, **fields) -> Session:
         """
         Updates arbitrary fields on a Session record.
 
@@ -60,7 +62,7 @@ class BaseSessionRepository(ABC):
         ...
 
     @abstractmethod
-    def delete(self, uuid: uuid.UUID) -> SessionRecord:
+    def delete(self, uuid: uuid.UUID) -> Session:
         """
         Removes a Session record.
 
@@ -83,13 +85,14 @@ class BaseSessionRepository(ABC):
         ...
 
 
-
 class SQLSessionRepository(BaseSessionRepository):
     """Implementation of host storage using Peewee ORM."""
-    
-    def create(self, user_email: str, created_at: datetime, valid_until: datetime) -> SessionRecord:
+
+    def create(
+        self, user_email: str, created_at: datetime, valid_until: datetime
+    ) -> Session:
         try:
-            session = SessionRecord.create(
+            session = Session.create(
                 id=uuid.uuid4(),
                 created_at=created_at,
                 valid_until=valid_until,
@@ -101,41 +104,28 @@ class SQLSessionRepository(BaseSessionRepository):
         except Exception as e:
             raise ServiceError(f"unexpected error while creating a new Session: {e}")
 
-
-    def read(self, **filters) -> list[SessionRecord]:
-        query = SessionRecord.select()
+    def read(self, **filters) -> list[Session]:
+        query = Session.select()
         for field, value in filters.items():
-            query = query.where(getattr(SessionRecord, field) == value)
+            query = query.where(getattr(Session, field) == value)
         return list(query)
 
-
-    def update(self, uuid: uuid.UUID, **fields) -> SessionRecord:
-        rows = (SessionRecord
-                    .update(**fields)
-                    .where(SessionRecord.id == uuid)
-                    .execute())
+    def update(self, uuid: uuid.UUID, **fields) -> Session:
+        rows = Session.update(**fields).where(Session.id == uuid).execute()
         if rows == 0:
             raise NotFoundError(f"Session {uuid} does not exist")
-        return SessionRecord.get_by_id(uuid)
+        return Session.get_by_id(uuid)
 
-
-    def delete(self, uuid: uuid.UUID) -> SessionRecord:
-        record = SessionRecord.get_or_none(SessionRecord.id == uuid)
+    def delete(self, uuid: uuid.UUID) -> Session:
+        record = Session.get_or_none(Session.id == uuid)
         if record is None:
             raise NotFoundError(f"Session {uuid} does not exist")
 
-        rows_deleted = (SessionRecord
-                        .delete()
-                        .where(SessionRecord.id == uuid)
-                        .execute())
+        rows_deleted = Session.delete().where(Session.id == uuid).execute()
         if rows_deleted == 0:
             raise NotFoundError(f"Session {uuid} does not exist")
         return record
 
-
     def delete_expired(self, now: datetime) -> int:
-        rows_deleted = (SessionRecord
-                        .delete()
-                        .where(SessionRecord.valid_until < now)
-                        .execute())
+        rows_deleted = Session.delete().where(Session.valid_until < now).execute()
         return int(rows_deleted)

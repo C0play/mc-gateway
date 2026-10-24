@@ -1,15 +1,15 @@
-from typing import cast
 from datetime import datetime
+from typing import cast
 
-from ....utils.models import Session as SessionRecord
-from ..models.session import Session
+from ....utils.models import Session
+from ..models.session import Session as SessionModel
 
 
-def session_from_record(record: SessionRecord) -> Session:
+def session_from_record(record: Session) -> SessionModel:
     """Maps a session record to it's pydantic model."""
-    return Session(
-        user_email      = str(record.user),
-        access_token    = str(record.id),
-        created_at      = cast(datetime, record.created_at),
-        valid_until     = cast(datetime, record.valid_until),
+    return SessionModel(
+        user_email=str(record.user),
+        access_token=str(record.id),
+        created_at=cast(datetime, record.created_at),
+        valid_until=cast(datetime, record.valid_until),
     )

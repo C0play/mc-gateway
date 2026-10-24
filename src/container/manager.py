@@ -7,7 +7,7 @@ from ..exceptions.errors import NotFoundError, ServiceError
 from ..host.host import BaseHost, ControllerHost
 from ..host.manager import BaseHostManager
 from ..utils.logger import logger
-from ..utils.models import Container as ContainerRecord
+from ..utils.models import Container
 from .container import BaseContainer, ControllerContainer
 from .repository import BaseContainerRepository
 
@@ -27,7 +27,7 @@ class BaseContainerManager(ABC):
         self.hosts = host_manager
 
     @abstractmethod
-    def create(self, ip: str, config: ContainerConfig) -> ContainerRecord:
+    def create(self, ip: str, config: ContainerConfig) -> Container:
         """
         Creates a new container entry and persists configuration for deferred deployment.
         The compose.yml will be deployed to the remote host on the container's first start.
@@ -37,7 +37,7 @@ class BaseContainerManager(ABC):
             config: Configuration for compose.yml generation.
 
         Returns:
-            ContainerRecord: The newly created container record.
+            Container: The newly created container record.
         """
         ...
 
@@ -101,7 +101,7 @@ class ControllerContainerManager(BaseContainerManager):
         self.active_containers: dict[str, ControllerContainer] = {}
         self.name_to_subdomain: dict[str, str] = {}
 
-    def create(self, ip: str, config: ContainerConfig) -> ContainerRecord:
+    def create(self, ip: str, config: ContainerConfig) -> Container:
 
         config_payload = config.model_dump(mode="json")
         record = self.storage.create(

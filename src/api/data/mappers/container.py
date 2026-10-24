@@ -1,11 +1,11 @@
 from ipaddress import ip_address
 from typing import cast
 
-from ....utils.models import Container as ContainerRecord
+from ....utils.models import Container
 from ..models.container import ContainerConfig, FullContainer
 
 
-def full_container_from_record(record: ContainerRecord) -> FullContainer:
+def full_container_from_record(record: Container) -> FullContainer:
     """Maps a container record to it's full pydantic model."""
 
     ip = "127.0.0.1" if record.host is None else record.host.ip
