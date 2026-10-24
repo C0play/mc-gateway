@@ -135,7 +135,13 @@ class Server:
                 self._client_count -= 1
 
     def _process_handshake(self, client: Client) -> None:
-        subdomain, domain = client.packets.handshake.data.address.split(".", 1)
+        try:
+            subdomain, domain = client.packets.handshake.data.address.split(".", 1)
+        except ValueError:
+            logger.exception(
+                f"unexpected address format: {client.packets.handshake.data.address}"
+            )
+            raise
 
         if not (
             self._whitelist.validate(subdomain=subdomain)
